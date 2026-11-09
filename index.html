@@ -391,6 +391,15 @@ label.chk input{width:18px;height:18px}
 .sairb{color:#C9CFDB}
 .tag.adm{background:var(--tinta);color:#fff}
 .linha.acesso{grid-template-columns:auto 1fr auto auto}
+td.c.ot{color:var(--tinta)!important}
+td.c.ot::after{display:none}
+.lt{font-weight:800;font-size:11.5px;color:var(--tinta)}
+.sw.ot{display:inline-grid;place-items:center;background:#fff}
+.sw .lt{font-size:9.5px}
+.tsem{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.tsem label{display:flex;flex-direction:column;gap:4px;font-size:12px!important}
+.tsem select{height:34px!important;font-size:13px!important;padding:0 2px;width:100%;min-width:0}
+@media (max-width:860px){.tsem{grid-template-columns:repeat(4,1fr)}}
 </style>
 </head>
 <body>
@@ -451,10 +460,15 @@ try{var hl=localStorage.getItem('kikoxinha-escala-ui');if(hl){var o=JSON.parse(h
 
 /* ---------- escala ---------- */
 function mesDoc(k){var mk=k.slice(0,7);if(!meses[mk])meses[mk]={escala:{}};if(!meses[mk].escala)meses[mk].escala={};return meses[mk];}
-function get(fid,k){
+function getRaw(fid,k){
   if(mode==='gerente'){var e0=V&&V.escala&&V.escala[fid];return (e0&&e0[k])||'';}
   var m=meses[k.slice(0,7)],e=m&&m.escala&&m.escala[fid];return (e&&e[k])||'';
-}
+}function baseC(c){return c&&c.indexOf('T@')===0?'T':c;}
+function get(fid,k){return baseC(getRaw(fid,k));}
+function turnoEf(f,k){var c=getRaw(f.id,k);return c&&c.indexOf('T@')===0?c.slice(2):(f.turnoId||'');}
+function letraTurno(tid){var t=turno(tid);return t?t.nome.charAt(0).toUpperCase():'?';}
+function porMat(a,b){return ((+a.matricula||1e9)-(+b.matricula||1e9))||a.nome.localeCompare(b.nome);}
+
 function setC(fid,k,v){
   var md=mesDoc(k);if(!md.escala[fid])md.escala[fid]={};
   if(v)md.escala[fid][k]=v;else delete md.escala[fid][k];
@@ -464,8 +478,16 @@ function loja(id){return cad.lojas.find(function(l){return l.id===id;});}
 function turno(id){var ts=mode==='gerente'?(V&&V.turnos||[]):cad.turnos;return ts.find(function(t){return t.id===id;});}
 function turnoLbl(t){return t?(t.nome+(t.inicio?' ('+t.inicio+'–'+t.fim+')':'')):'Sem turno';}
 function funcsDa(lid){return cad.funcs.filter(function(f){return f.ativo!==false&&(lid==='*'||f.lojaId===lid);});}
+function trabalhaDomingo(f,dt){
+  var l=loja(f.lojaId),q=l&&+l.domingoQtd||0;if(!(q>0))return null;
+  var lista=cad.funcs.filter(function(x){return x.ativo!==false&&x.lojaId===f.lojaId;}).sort(porMat),n=lista.length,i=lista.findIndex(function(x){return x.id===f.id;});
+  if(i<0||!n)return null;if(q>=n)return true;
+  var w=weekIndex(dt);for(var j=0;j<q;j++){if((((w*q+j)%n)+n)%n===i)return true;}return false;
+}
 function folgaPrevista(f,dt){
   var wd=dt.getDay(),f1=+f.folga1,f2=+f.folga2,offs=[f1,f2],N=+f.domingoCada||0;
+  var td=trabalhaDomingo(f,dt);
+  if(td!==null){if(wd===0)return !td;return td?(wd===f1||wd===f2):wd===f1;}
   if(N>0&&f1!==0&&f2!==0){var wi=weekIndex(dt);if(((wi%N)+N)%N===(((+f.grupo||1)-1)%N))offs=[f1,0];}
   return offs.indexOf(wd)>=0;
 }
@@ -473,7 +495,10 @@ function gerar(f,y,m){
   for(var d=1;d<=dim(y,m);d++){
     var dt=new Date(y,m,d),k=kOf(dt),c=get(f.id,k);
     if(c==='FE'||c==='AT'||c==='FT')continue;
-    setC(f.id,k,folgaPrevista(f,dt)?'F':'T');
+    if(k<todayKey())continue;
+    var v='F';
+    if(!folgaPrevista(f,dt)){var ts=(f.turnoSemana||{})[dt.getDay()];v=ts&&ts!==f.turnoId&&cad.turnos.some(function(t){return t.id===ts;})?'T@'+ts:'T';}
+    setC(f.id,k,v);
   }
 }
 function validar(f,y,m){
@@ -504,7 +529,7 @@ function validar(f,y,m){
   }
   return {alerts:alerts,bad:bad,wk:wk};
 }
-function noTurno(lid,tid,k){return cad.funcs.filter(function(f){return f.ativo!==false&&f.lojaId===lid&&(f.turnoId||'')===(tid||'')&&get(f.id,k)==='T';});}
+function noTurno(lid,tid,k){return cad.funcs.filter(function(f){return f.ativo!==false&&f.lojaId===lid&&get(f.id,k)==='T'&&turnoEf(f,k)===(tid||'');});}
 
 /* ---------- gravação ---------- */
 function bodyFor(p){
@@ -544,8 +569,8 @@ function visaoFor(lid){
   var l=loja(lid);if(!l)return null;
   var j=janela(),fs=cad.funcs.filter(function(f){return f.ativo!==false&&f.lojaId===l.id;});
   var esc={};
-  fs.forEach(function(f){var o={};for(var d=j.de;d<=j.ate;d=addDays(d,1)){var k=kOf(d),c=get(f.id,k);if(c)o[k]=c;}esc[f.id]=o;});
-  return {lojaId:l.id,lojaNome:l.nome,minimos:clone(l.minimos),turnos:cad.turnos.filter(function(t){return fs.some(function(f){return f.turnoId===t.id;});}).map(clone),
+  fs.forEach(function(f){var o={};for(var d=j.de;d<=j.ate;d=addDays(d,1)){var k=kOf(d),c=getRaw(f.id,k);if(c)o[k]=c;}esc[f.id]=o;});
+  return {lojaId:l.id,lojaNome:l.nome,minimos:clone(l.minimos),turnos:cad.turnos.map(clone),
     funcs:fs.map(function(f){return {id:f.id,nome:f.nome,funcao:f.funcao||'',turnoId:f.turnoId||''};}),escala:esc,de:kOf(j.de),ate:kOf(j.ate)};
 }
 function stable(o){if(Array.isArray(o))return '['+o.map(stable).join(',')+']';if(o&&typeof o==='object'){return '{'+Object.keys(o).sort().filter(function(k){return k!=='atualizadoEm';}).map(function(k){return JSON.stringify(k)+':'+stable(o[k]);}).join(',')+'}';}return JSON.stringify(o);}
@@ -806,7 +831,7 @@ function grupos(lid){
     var fs=funcsDa(l.id);
     cad.turnos.forEach(function(t){
       var list=fs.filter(function(f){return f.turnoId===t.id;});
-      if(list.length||+(l.minimos[t.id]||0)>0)g.push({loja:l,turnoId:t.id,funcs:list.sort(function(a,b){return a.nome.localeCompare(b.nome);})});
+      if(list.length||+(l.minimos[t.id]||0)>0||fs.some(function(f){var o=f.turnoSemana||{};return Object.keys(o).some(function(k){return o[k]===t.id;});}))g.push({loja:l,turnoId:t.id,funcs:list.sort(function(a,b){return a.nome.localeCompare(b.nome);})});
     });
     var sem=fs.filter(function(f){return !f.turnoId||!cad.turnos.some(function(t){return t.id===f.turnoId;});});
     if(sem.length)g.push({loja:l,turnoId:'',funcs:sem});
@@ -858,7 +883,7 @@ function ausCol(fs,k){
 }
 
 /* ---- Escala do mês (admin) ---- */
-var PINCEIS=[['toggle','Folga ou trabalho','tg'],['F','Folga','F'],['T','Trabalho','T'],['FE','Férias','FE'],['AT','Atestado','AT'],['FT','Falta','FT'],['','Limpar','lp']];
+function pinceis(){var p=[['toggle','Folga ou trabalho','tg'],['F','Folga','F'],['T','Trabalho','T']];if(cad.turnos.length>1)cad.turnos.forEach(function(t){p.push(['T@'+t.id,'Trabalho '+t.nome,'T ot','<b class="lt">'+h(t.nome.charAt(0).toUpperCase())+'</b>']);});return p.concat([['FE','Férias','FE'],['AT','Atestado','AT'],['FT','Falta','FT'],['','Limpar','lp']]);}
 function vEscala(){
   var y=ui.ano,m=ui.mes,n=dim(y,m),tk=todayKey();
   var nav='<div class="pager"><button class="ib" data-act="mes" data-v="-1" aria-label="Mês anterior">'+ic('esq')+'</button><span class="pager-l"><span>'+MESES[m]+' '+y+'</span></span><button class="ib" data-act="mes" data-v="1" aria-label="Próximo mês">'+ic('dir')+'</button></div>';
@@ -880,9 +905,9 @@ function vEscala(){
       if(v.alerts.length)allAlerts.push({f:f,a:v.alerts});
       var r='<tr><td class="nm"><button class="pess" data-act="editf" data-v="'+f.id+'" title="Editar '+h(f.nome)+'">'+av(f.nome)+'<span><b>'+h(f.nome)+'</b><small>'+WD[+f.folga1]+' + '+WD[+f.folga2]+(+f.domingoCada?' · dom. a cada '+f.domingoCada:'')+'</small></span></button></td>';
       for(var d=1;d<=n;d++){
-        var dt=new Date(y,m,d),k=kOf(dt),c=get(f.id,k),wd=dt.getDay(),pd=pedidosNoDia(f.id,k);
+        var dt=new Date(y,m,d),k=kOf(dt),c=get(f.id,k),raw=getRaw(f.id,k),wd=dt.getDay(),pd=pedidosNoDia(f.id,k);
         if(c==='F')nf++;
-        r+='<td class="c '+(c||'v')+(wd===0?' dom':'')+(k===tk?' hj':'')+(v.bad[k]?' bad':(v.wk[k]?' wk':''))+(pd?' req':'')+'" data-f="'+f.id+'" data-k="'+k+'"'+(pd?' title="Pedido de alteração aguardando"':'')+'>'+(c||'')+'</td>';
+        r+='<td class="c '+(c||'v')+(raw!==c?' ot':'')+(wd===0?' dom':'')+(k===tk?' hj':'')+(v.bad[k]?' bad':(v.wk[k]?' wk':''))+(pd?' req':'')+'" data-f="'+f.id+'" data-k="'+k+'"'+(raw!==c?' title="Trabalha no turno '+h((turno(raw.slice(2))||{}).nome||'')+'"':(pd?' title="Pedido de alteração aguardando"':''))+'>'+(raw!==c?'<b class="lt">'+letraTurno(raw.slice(2))+'</b>':(c||''))+'</td>';
       }
       r+='<td class="tot">'+nf+'</td><td class="tot">'+(v.alerts.length?'<span class="badge" title="'+h(v.alerts.map(function(a){return a.t;}).join('\n'))+'">'+v.alerts.length+'</span>':'<span class="okc">'+ic('ok')+'</span>')+'</td></tr>';
       body+=r;
@@ -894,10 +919,10 @@ function vEscala(){
       body+=cr+'<td></td><td></td></tr>';
     }
   });
-  var pinc='<div class="pinceis" role="radiogroup" aria-label="Marcar dias como">'+PINCEIS.map(function(p){return '<button role="radio" aria-checked="'+(ui.brush===p[0])+'" class="pincel'+(ui.brush===p[0]?' on':'')+'" data-act="brush" data-v="'+p[0]+'"><i class="sw '+p[2]+'"></i>'+p[1]+'</button>';}).join('')+'<span class="mut small dica">Clique ou arraste sobre os dias</span></div>';
+  var pinc='<div class="pinceis" role="radiogroup" aria-label="Marcar dias como">'+pinceis().map(function(p){return '<button role="radio" aria-checked="'+(ui.brush===p[0])+'" class="pincel'+(ui.brush===p[0]?' on':'')+'" data-act="brush" data-v="'+p[0]+'"><i class="sw '+p[2]+'">'+(p[3]||'')+'</i>'+p[1]+'</button>';}).join('')+'<span class="mut small dica">Clique ou arraste sobre os dias</span></div>';
   var resumo=allAlerts.length?'<a class="al-chip" href="#alertas" data-act="veralertas">'+ic('alerta')+allAlerts.reduce(function(a,x){return a+x.a.length;},0)+' alertas</a>':'<span class="al-chip ok">'+ic('ok')+'Escala dentro das regras</span>';
   o+='<section class="painel grade-p"><div class="grade-top">'+pinc+resumo+'</div><div class="gridwrap"><table class="g" id="grid"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+
-    '<div class="leg"><span><i class="lg bad"></i>Regra quebrada</span><span><i class="lg wk"></i>Semana sem 2 folgas</span><span><i class="lg req"></i>Pedido aguardando</span><span><i class="lg low"></i>Abaixo do mínimo</span></div></section>';
+    '<div class="leg"><span><i class="lg bad"></i>Regra quebrada</span><span><i class="lg wk"></i>Semana sem 2 folgas</span><span><i class="lg req"></i>Pedido aguardando</span>'+(cad.turnos.length>1?'<span><i class="sw T ot"><b class="lt">N</b></i>Letra = trabalha em outro turno naquele dia</span>':'')+'<span><i class="lg low"></i>Abaixo do mínimo</span></div></section>';
   o+='<section class="painel" id="alertas"><div class="painel-h"><h2>Alertas de '+MESES[m].toLowerCase()+'</h2></div>';
   if(!allAlerts.length)o+='<p class="mut">Todos com 2 folgas por semana, no máximo '+(+cad.config.maxSeguidos||6)+' dias seguidos'+(+cad.config.domingoCada?' e um domingo de folga a cada '+cad.config.domingoCada+' semanas':'')+'.</p>';
   else o+='<div class="alertas">'+allAlerts.map(function(x){return '<div class="al">'+av(x.f.nome)+'<div><b>'+h(x.f.nome)+'</b> <span class="mut small">'+h((loja(x.f.lojaId)||{}).nome||'')+'</span><ul>'+x.a.map(function(a){return '<li class="'+(a.lvl===2?'grave':'')+'">'+h(a.t)+'</li>';}).join('')+'</ul></div></div>';}).join('')+'</div>';
@@ -962,13 +987,14 @@ function vConfig(){
   var gids=[];
   var o=pageHead('Ajustes','Acessos, lojas, turnos e regras da escala.');
   o+=vAcessos();
-  o+='<section class="painel"><div class="painel-h"><h2>Lojas e mínimo por turno</h2></div><p class="mut small">Quantas pessoas precisam estar trabalhando em cada turno. A escala avisa quando fica abaixo.</p><div class="tab-w"><table class="t"><thead><tr><th>Loja</th>';
+  o+='<section class="painel"><div class="painel-h"><h2>Lojas e mínimo por turno</h2></div><p class="mut small">Mínimo: quantas pessoas precisam estar trabalhando em cada turno; a escala avisa quando fica abaixo. Domingo: quantas pessoas trabalham no domingo, em rodízio (deixe vazio para seguir o padrão de cada funcionário).</p><div class="tab-w"><table class="t"><thead><tr><th>Loja</th>';
   cad.turnos.forEach(function(t){o+='<th>'+h(t.nome)+'</th>';});
-  o+='<th></th></tr></thead><tbody>';
+  o+='<th>Domingo</th><th></th></tr></thead><tbody>';
   cad.lojas.forEach(function(l){
     var q=cad.funcs.filter(function(f){return f.lojaId===l.id;}).length,qg=Object.keys(usuarios).filter(function(g){return usuarios[g].lojaId===l.id;}).length;
     o+='<tr><td><input class="in-nome" value="'+h(l.nome)+'" data-chg="lojanome" data-id="'+l.id+'" aria-label="Nome da loja"></td>';
     cad.turnos.forEach(function(t){o+='<td><input type="number" min="0" value="'+(l.minimos[t.id]||0)+'" data-chg="lojamin" data-id="'+l.id+'" data-t="'+t.id+'" aria-label="Mínimo '+h(t.nome)+'"></td>';});
+    o+='<td><input type="number" min="0" value="'+(l.domingoQtd||'')+'" placeholder="todos" data-chg="lojadom" data-id="'+l.id+'" aria-label="Pessoas trabalhando no domingo"></td>';
     o+='<td class="r">'+(q||qg?'<span class="mut small">'+q+' pessoas</span>':'<button class="lnk perigo" data-act="delloja" data-v="'+l.id+'">Remover</button>')+'</td></tr>';
   });
   o+='</tbody></table></div><button class="btn" data-act="addloja">'+ic('mais')+'Adicionar loja</button></section>';
@@ -998,7 +1024,7 @@ function vSemana(){
   var podeVoltar=addDays(ws,-7)>=mondayOf(de),podeIr=addDays(ws,7)<=ate,estaSem=kOf(ws)===kOf(mondayOf(new Date()));
   var o='';
   if(pk(tk)>=de&&pk(tk)<=ate){
-    var cols='';V.turnos.forEach(function(t){var w=V.funcs.filter(function(f){return f.turnoId===t.id&&get(f.id,tk)==='T';});cols+=turnoCol(t,w,+((V.minimos||{})[t.id]||0));});
+    var cols='';V.turnos.forEach(function(t){var w=V.funcs.filter(function(f){return turnoEf(f,tk)===t.id&&get(f.id,tk)==='T';});if(!w.length&&!V.funcs.some(function(f){return f.turnoId===t.id;}))return;cols+=turnoCol(t,w,+((V.minimos||{})[t.id]||0));});
     o+=pageHead('Hoje',WDL[pk(tk).getDay()]+', '+pk(tk).getDate()+' de '+MESES[pk(tk).getMonth()].toLowerCase(),'<button class="btn escuro so-desk" data-act="novoped">'+ic('mais')+'Pedir alteração</button>');
     o+='<section class="painel"><div class="dia-grid">'+cols+ausCol(V.funcs,tk)+'</div></section>';
   }
@@ -1006,16 +1032,16 @@ function vSemana(){
   o+='<div class="ph ph2"><div><h1>Semana</h1></div><div class="ph-a"><div class="pager"><button class="ib" data-act="semana" data-v="-7"'+(podeVoltar?'':' disabled')+' aria-label="Semana anterior">'+ic('esq')+'</button><span class="pager-l"><span>'+fmtD(ws)+' a '+fmtD(addDays(ws,6))+'</span></span><button class="ib" data-act="semana" data-v="7"'+(podeIr?'':' disabled')+' aria-label="Próxima semana">'+ic('dir')+'</button>'+(estaSem?'':'<button class="btn sm" data-act="estasemana">Esta semana</button>')+'</div></div></div>';
   var head='<tr><th class="nm">Funcionário</th>'+days.map(function(d){var w=d.getDay();return '<th class="'+(w===0?'dom ':w===6?'sab ':'')+(kOf(d)===tk?'hj':'')+'"><span>'+WD[w]+'</span>'+d.getDate()+'</th>';}).join('')+'</tr>';
   var body='',tids=V.turnos.map(function(t){return t.id;});
-  var grp=V.turnos.map(function(t){return {t:t,fs:V.funcs.filter(function(f){return f.turnoId===t.id;})};});
+  var grp=V.turnos.map(function(t){return {t:t,fs:V.funcs.filter(function(f){return f.turnoId===t.id;})};}).filter(function(g){return g.fs.length;});
   var sem=V.funcs.filter(function(f){return tids.indexOf(f.turnoId)<0;});if(sem.length)grp.push({t:null,fs:sem});
   grp.forEach(function(g){
     body+='<tr class="grp"><td class="nm"><b>'+h(g.t?g.t.nome:'Sem turno')+'</b>'+(g.t&&g.t.inicio?' <span>'+h(g.t.inicio)+'–'+h(g.t.fim)+'</span>':'')+'</td><td colspan="7"></td></tr>';
     g.fs.sort(function(a,b){return a.nome.localeCompare(b.nome);}).forEach(function(f){
-      body+='<tr><td class="nm"><div class="pess">'+av(f.nome)+'<span><b>'+h(f.nome)+'</b><small>'+h(f.funcao||'')+'</small></span></div></td>'+days.map(function(d){var k=kOf(d),c=get(f.id,k),w=d.getDay();return '<td class="c ro '+(c||'v')+(w===0?' dom':'')+(k===tk?' hj':'')+'" data-pf="'+f.id+'" data-k="'+k+'" title="'+h(f.nome)+': '+(CODES[c]||'sem lançamento')+'. Toque para pedir alteração">'+(c||'')+'</td>';}).join('')+'</tr>';
+      body+='<tr><td class="nm"><div class="pess">'+av(f.nome)+'<span><b>'+h(f.nome)+'</b><small>'+h(f.funcao||'')+'</small></span></div></td>'+days.map(function(d){var k=kOf(d),c=get(f.id,k),raw=getRaw(f.id,k),ot=raw!==c,w=d.getDay();return '<td class="c ro '+(c||'v')+(ot?' ot':'')+(w===0?' dom':'')+(k===tk?' hj':'')+'" data-pf="'+f.id+'" data-k="'+k+'" title="'+h(f.nome)+': '+(ot?'trabalha no turno '+h((turno(raw.slice(2))||{}).nome||''):(CODES[c]||'sem lançamento'))+'. Toque para pedir alteração">'+(ot?'<b class="lt">'+letraTurno(raw.slice(2))+'</b>':(c||''))+'</td>';}).join('')+'</tr>';
     });
     if(g.t){
       var min=+((V.minimos||{})[g.t.id]||0);
-      body+='<tr class="cov"><td class="nm">Trabalhando'+(min?' · mín. '+min:'')+'</td>'+days.map(function(d){var k=kOf(d),q=g.fs.filter(function(f){return get(f.id,k)==='T';}).length,has=g.fs.some(function(f){return get(f.id,k);});return '<td class="'+(has&&min&&q<min?'low':'')+(k===tk?' hj':'')+'">'+(has?q:'')+'</td>';}).join('')+'</tr>';
+      body+='<tr class="cov"><td class="nm">Trabalhando'+(min?' · mín. '+min:'')+'</td>'+days.map(function(d){var k=kOf(d),q=V.funcs.filter(function(f){return get(f.id,k)==='T'&&turnoEf(f,k)===g.t.id;}).length,has=g.fs.some(function(f){return get(f.id,k);});return '<td class="'+(has&&min&&q<min?'low':'')+(k===tk?' hj':'')+'">'+(has?q:'')+'</td>';}).join('')+'</tr>';
     }
   });
   var semDados=days.every(function(d){return V.funcs.every(function(f){return !get(f.id,kOf(d));});});
@@ -1075,10 +1101,11 @@ function vModal(){
     return shell(isNew?'Adicionar funcionário':'Editar '+f.nome,'<form id="ff" class="form">'+
       '<label>Nome<input name="nome" required value="'+h(f.nome)+'" autocomplete="off"></label><div class="f2"><label>Matrícula<input name="matricula" value="'+h(f.matricula||'')+'" inputmode="numeric"></label><label>Função<input name="funcao" value="'+h(f.funcao||'')+'" placeholder="Ex.: Atendente"></label></div>'+
       '<div class="f2"><label>Loja<select name="lojaId">'+lo+'</select></label><label>Turno<select name="turnoId">'+to+'</select></label></div>'+
+      (cad.turnos.length>1?'<fieldset><legend>Turno em cada dia (se mudar de turno durante a semana)</legend><div class="tsem">'+[1,2,3,4,5,6,0].map(function(i){var cur=(f.turnoSemana||{})[i]||'';return '<label><span>'+WD[i]+'</span><select name="ts'+i+'"><option value="">Padrão</option>'+cad.turnos.map(function(t){return '<option value="'+t.id+'"'+(cur===t.id?' selected':'')+'>'+h(t.nome)+'</option>';}).join('')+'</select></label>';}).join('')+'</div></fieldset>':'')+
       '<fieldset><legend>Folga fixa</legend>'+dias('folga1',f.folga1)+'</fieldset>'+
       '<fieldset><legend>Segunda folga</legend>'+dias('folga2',f.folga2)+'</fieldset>'+
-      '<div class="f2"><label>Revezamento de domingo<select name="domingoCada" data-chg="mdc"><option value="0"'+(dc===0?' selected':'')+'>Não reveza</option><option value="2"'+(dc===2?' selected':'')+'>Folga no domingo a cada 2 semanas</option><option value="3"'+(dc===3?' selected':'')+'>Folga no domingo a cada 3 semanas</option><option value="4"'+(dc===4?' selected':'')+'>Folga no domingo a cada 4 semanas</option></select></label><label>Grupo<select name="grupo"'+(dc?'':' disabled')+'>'+gr+'</select></label></div>'+
-      '<p class="mut small">Nas semanas do grupo, a segunda folga passa para o domingo. Espalhe as pessoas do mesmo turno em grupos diferentes para a loja não ficar vazia no domingo.</p>'+
+      ((loja(f.lojaId)||{}).domingoQtd?'<p class="aviso info"><span>Na '+h(loja(f.lojaId).nome)+', '+loja(f.lojaId).domingoQtd+' pessoas trabalham no domingo, em rodízio automático. Na semana em que a pessoa folga no domingo, a folga fixa é a outra folga; na semana em que trabalha no domingo, folga nos dois dias escolhidos.</span></p><div class="f2" hidden>':'<div class="f2">')+'<label>Revezamento de domingo<select name="domingoCada" data-chg="mdc"><option value="0"'+(dc===0?' selected':'')+'>Não reveza</option><option value="2"'+(dc===2?' selected':'')+'>Folga no domingo a cada 2 semanas</option><option value="3"'+(dc===3?' selected':'')+'>Folga no domingo a cada 3 semanas</option><option value="4"'+(dc===4?' selected':'')+'>Folga no domingo a cada 4 semanas</option></select></label><label>Grupo<select name="grupo"'+(dc?'':' disabled')+'>'+gr+'</select></label></div>'+
+      ((loja(f.lojaId)||{}).domingoQtd?'':'<p class="mut small">Nas semanas do grupo, a segunda folga passa para o domingo. Espalhe as pessoas do mesmo turno em grupos diferentes para a loja não ficar vazia no domingo.</p>')+
       '<label class="chk"><input type="checkbox" name="ativo"'+(f.ativo!==false?' checked':'')+'> Ativo na escala</label>'+
       '<div class="modal-a">'+(isNew?'':'<button type="button" class="lnk perigo" data-act="delfq" style="margin-right:auto">Excluir funcionário</button>')+'<button type="button" class="btn" data-act="fechar">Cancelar</button><button type="submit" class="btn escuro">'+(isNew?'Adicionar':'Salvar')+'</button></div></form>');
   }
@@ -1087,7 +1114,7 @@ function vModal(){
 function confirmar(title,text,ok,fn,perigo){ui.modal={type:'confirm',title:title,text:text,ok:ok,fn:fn,perigo:!!perigo};render();}
 function lerFunc(){
   var fd=new FormData($('#ff')),f=ui.modal.f;
-  return Object.assign(clone(f),{id:f.id,matricula:String(fd.get('matricula')||'').trim(),nome:String(fd.get('nome')||'').trim(),lojaId:fd.get('lojaId'),funcao:String(fd.get('funcao')||'').trim(),turnoId:fd.get('turnoId')||'',folga1:+fd.get('folga1'),folga2:+fd.get('folga2'),domingoCada:+fd.get('domingoCada')||0,grupo:+(fd.get('grupo')||1),ativo:!!fd.get('ativo')});
+  return Object.assign(clone(f),{id:f.id,matricula:String(fd.get('matricula')||'').trim(),nome:String(fd.get('nome')||'').trim(),lojaId:fd.get('lojaId'),funcao:String(fd.get('funcao')||'').trim(),turnoId:fd.get('turnoId')||'',folga1:+fd.get('folga1'),folga2:+fd.get('folga2'),domingoCada:+fd.get('domingoCada')||0,grupo:+(fd.get('grupo')||1),ativo:!!fd.get('ativo'),turnoSemana:(function(){var o={};[0,1,2,3,4,5,6].forEach(function(i){var x=fd.get('ts'+i);if(x)o[i]=String(x);});return o;})()});
 }
 function carregarExemplo(){
   var l=cad.lojas[0];if(!l){l={id:uid(),nome:'Loja 1',minimos:{}};cad.lojas.push(l);}
@@ -1211,7 +1238,7 @@ function montarExcel(ExcelJS,y,m){
           cnt[v]=(cnt[v]||0)+1;
           x.border=xBorda();x.alignment=XCENTRO;
           if(XC[v]&&v!=='T'){x.value=v;x.fill=xFill(XC[v][0]);x.font=xFont({bold:true,size:10.5,color:{argb:XC[v][1]}});}
-          else{x.value=v==='T'?'':(v?v:'–');x.font=xFont({size:8,color:{argb:'FFB9C1CF'}});if(wd===0)x.fill=xFill(XC.dom);else if(wd===6)x.fill=xFill(XC.sab);}
+          else{var rw=getRaw(f.id,k);x.value=rw&&rw!==v?letraTurno(rw.slice(2)):(v==='T'?'':(v?v:'–'));if(rw&&rw!==v){x.font=xFont({bold:true,size:10,color:{argb:XC.tinta}});if(wd===0)x.fill=xFill(XC.dom);continue;}x.font=xFont({size:8,color:{argb:'FFB9C1CF'}});if(wd===0)x.fill=xFill(XC.dom);else if(wd===6)x.fill=xFill(XC.sab);}
         }
         var cf=ws.getCell(r,n+3);cf.value=cnt.F;cf.font=xFont({bold:true,size:10.5});cf.alignment=XCENTRO;cf.border=xBorda();
         var ct=ws.getCell(r,n+4);ct.value=cnt.T;ct.font=xFont({bold:true,size:10.5});ct.alignment=XCENTRO;ct.border=xBorda();
@@ -1296,7 +1323,7 @@ root.addEventListener('click',function(ev){
     case 'exemplo':carregarExemplo();break;
     case 'gerarq':{
       var fs=funcsDa(ui.loja);if(!fs.length)return;
-      confirmar('Gerar a escala de '+MESES[ui.mes].toLowerCase()+'?','Preenche '+fs.length+' pessoa'+(fs.length>1?'s':'')+' de '+(ui.loja==='*'?'todas as lojas':(loja(ui.loja)||{}).nome)+' a partir das folgas cadastradas. Os dias de trabalho e folga deste mês são refeitos; férias, atestados e faltas ficam como estão.','Gerar escala',function(){fs.forEach(function(f){gerar(f,ui.ano,ui.mes);});toast('Escala de '+MESES[ui.mes].toLowerCase()+' gerada');});
+      confirmar('Gerar a escala de '+MESES[ui.mes].toLowerCase()+'?','Preenche '+fs.length+' pessoa'+(fs.length>1?'s':'')+' de '+(ui.loja==='*'?'todas as lojas':(loja(ui.loja)||{}).nome)+' a partir das folgas cadastradas. Os dias de trabalho e folga são refeitos a partir de hoje; dias que já passaram, férias, atestados e faltas ficam como estão.','Gerar escala',function(){fs.forEach(function(f){gerar(f,ui.ano,ui.mes);});toast('Escala de '+MESES[ui.mes].toLowerCase()+' gerada');});
       return;}
     case 'baixarxlsx':baixarExcel();return;
     case 'demoadm':verComo('adm');break;
@@ -1382,6 +1409,7 @@ root.addEventListener('change',function(ev){
     case 'tnome':turno(id).nome=v.trim()||turno(id).nome;touch('adm/cadastro');break;
     case 'tini':turno(id).inicio=v;touch('adm/cadastro');break;
     case 'tfim':turno(id).fim=v;touch('adm/cadastro');break;
+    case 'lojadom':loja(id).domingoQtd=Math.max(0,parseInt(v,10)||0);touch('adm/cadastro');break;
     case 'cfgmax':cad.config.maxSeguidos=Math.max(1,+v||6);touch('adm/cadastro');break;
     case 'cfgdom':cad.config.domingoCada=Math.max(0,+v||0);touch('adm/cadastro');break;
     case 'gloja':cad.gerentes[id].lojaId=v;touch('adm/cadastro');break;
@@ -1397,10 +1425,14 @@ var painting=null,tap=null;
 function paint(td){
   var fid=td.getAttribute('data-f'),k=td.getAttribute('data-k');
   if(painting.done[fid+k])return;painting.done[fid+k]=1;
-  setC(fid,k,painting.val);
-  td.className=td.className.replace(/\b(T|F|FE|AT|FT|bad|wk)\b/g,'').replace(/\s+/g,' ')+' '+painting.val;
-  td.textContent=painting.val||'·';
+  var val=painting.val;
+  if(val&&val.indexOf('T@')===0){var ff=cad.funcs.find(function(x){return x.id===fid;});if(ff&&ff.turnoId===val.slice(2))val='T';}
+  setC(fid,k,val);
+  var b=baseC(val);
+  td.className=td.className.replace(/\b(T|F|FE|AT|FT|bad|wk|ot|v)\b/g,'').replace(/\s+/g,' ')+' '+(b||'v')+(val!==b?' ot':'');
+  td.innerHTML=val!==b?'<b class="lt">'+letraTurno(val.slice(2))+'</b>':(b||'');
 }
+
 function startPaint(td){var cur=get(td.getAttribute('data-f'),td.getAttribute('data-k'));painting={val:ui.brush==='toggle'?(cur==='F'?'T':'F'):ui.brush,done:{}};paint(td);}
 root.addEventListener('pointerdown',function(ev){
   var pf=ev.target.closest('td[data-pf]');
