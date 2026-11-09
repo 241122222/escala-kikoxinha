@@ -1143,66 +1143,141 @@ function verComo(qual){
   ui.msg=null;ui.modal=null;
 }
 
-/* ---------- Excel do mês ---------- */
+/* ---------- Excel do mês (formatado para impressão) ---------- */
 var xlsxLib=null;
 function carregarXlsx(){
-  if(window.XLSX)return Promise.resolve(window.XLSX);
+  if(window.ExcelJS)return Promise.resolve(window.ExcelJS);
   if(xlsxLib)return xlsxLib;
-  xlsxLib=new Promise(function(res,rej){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=function(){res(window.XLSX);};s.onerror=function(){xlsxLib=null;rej(new Error('lib'));};document.head.appendChild(s);});
+  xlsxLib=new Promise(function(res,rej){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';s.onload=function(){res(window.ExcelJS);};s.onerror=function(){xlsxLib=null;rej(new Error('lib'));};document.head.appendChild(s);});
   return xlsxLib;
 }
 function nomeAba(n,usadas){var s=String(n).replace(/[\\\/\?\*\[\]:]/g,' ').trim().slice(0,28)||'Loja',b=s,i=2;while(usadas[s.toLowerCase()]){s=b.slice(0,25)+' '+(i++);}usadas[s.toLowerCase()]=1;return s;}
-function montarExcel(XLSX,y,m){
-  var n=dim(y,m),wb=XLSX.utils.book_new(),usadas={resumo:1,pedidos:1},mk=key(y,m,1).slice(0,7);
-  var res=[['Loja','Matrícula','Funcionário','Função','Turno','Trabalho','Folga','Férias','Atestado','Falta','Sem lançamento','Alertas']];
-  var abas=[];
-  cad.lojas.forEach(function(l){
-    var fs=cad.funcs.filter(function(f){return f.lojaId===l.id&&(f.ativo!==false||[].concat(Object.keys((meses[mk]||{}).escala||{})).indexOf(f.id)>=0);});
+var XC={tinta:'FF172033',tinta2:'FF5A6478',linha:'FFD5DAE2',linha2:'FFE9ECF1',fundo:'FFF4F5F7',dom:'FFFBEDEB',sab:'FFF7F8FA',ouro:'FFE8A02E',ourocl:'FFFFF4DE',
+  F:['FFDCEAFE','FF1B4F93'],FE:['FFDFF3E6','FF1E6B3A'],AT:['FFEDE6FF','FF5A3A9C'],FT:['FFFDE3DF','FFB42318'],low:['FFFDEBE8','FFC8321E']};
+function xFill(c){return {type:'pattern',pattern:'solid',fgColor:{argb:c}};}
+function xFont(o){return Object.assign({name:'Arial',size:9,color:{argb:XC.tinta}},o||{});}
+function xBorda(c){var b={style:'thin',color:{argb:c||XC.linha}};return {top:b,left:b,bottom:b,right:b};}
+var XCENTRO={horizontal:'center',vertical:'middle'},XESQ={horizontal:'left',vertical:'middle',indent:1};
+function xPagina(ws,linhasTitulo){
+  ws.pageSetup={paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,horizontalCentered:true,
+    margins:{left:0.25,right:0.25,top:0.45,bottom:0.45,header:0.2,footer:0.2},printTitlesRow:linhasTitulo||undefined};
+  ws.headerFooter={oddFooter:'&L&8Kikoxinha · Escala 5x2&R&8Página &P de &N'};
+}
+function montarExcel(ExcelJS,y,m){
+  var n=dim(y,m),wb=new ExcelJS.Workbook(),usadas={resumo:1,pedidos:1},mk=key(y,m,1).slice(0,7),tk=todayKey();
+  wb.creator='Kikoxinha';wb.created=new Date();
+  var nCols=2+n+2,mesNome=MESES[m]+' de '+y;
+  var resumo=[];
+  var lojasExp=ui.loja!=='*'&&loja(ui.loja)?[loja(ui.loja)]:cad.lojas;
+  lojasExp.forEach(function(l){
+    var temDados=function(f){return Object.keys(((meses[mk]||{}).escala||{})[f.id]||{}).length>0;};
+    var fs=cad.funcs.filter(function(f){return f.lojaId===l.id&&(f.ativo!==false||temDados(f));});
     if(!fs.length)return;
-    var hd=['Turno','Funcionário'];for(var d=1;d<=n;d++)hd.push(WD[new Date(y,m,d).getDay()]+' '+pad(d));hd.push('Folgas');hd.push('Trabalho');
-    var rows=[[l.nome+' — '+MESES[m]+' '+y],hd];
-    var ord=fs.slice().sort(function(a,b){var ta=cad.turnos.findIndex(function(t){return t.id===a.turnoId;}),tb=cad.turnos.findIndex(function(t){return t.id===b.turnoId;});return (ta-tb)||a.nome.localeCompare(b.nome);});
-    ord.forEach(function(f){
-      var c={T:0,F:0,FE:0,AT:0,FT:0,'':0},r=[turnoLbl(turno(f.turnoId)),f.nome];
-      for(var d=1;d<=n;d++){var v=get(f.id,key(y,m,d));c[v]=(c[v]||0)+1;r.push(v);}
-      r.push(c.F);r.push(c.T);rows.push(r);
-      res.push([l.nome,f.matricula||'',f.nome,f.funcao||'',turnoLbl(turno(f.turnoId)),c.T,c.F,c.FE,c.AT,c.FT,c[''],validar(f,y,m).alerts.map(function(a){return a.t;}).join(' | ')]);
+    var ws=wb.addWorksheet(nomeAba(l.nome,usadas),{views:[{state:'frozen',xSplit:2,ySplit:5,showGridLines:false}],properties:{tabColor:{argb:XC.ouro}}});
+    xPagina(ws,'4:5');
+    ws.columns=[{width:7},{width:34}].concat(Array.from({length:n},function(){return {width:4.3};})).concat([{width:7.5},{width:9}]);
+    // título
+    ws.mergeCells(1,1,1,nCols);var t=ws.getCell(1,1);t.value='Escala de trabalho · '+l.nome;t.font=xFont({size:18,bold:true});t.alignment={vertical:'middle'};ws.getRow(1).height=26;
+    ws.mergeCells(2,1,2,nCols);var st=ws.getCell(2,1);st.value=mesNome+' · Jornada 5x2';st.font=xFont({size:11,color:{argb:XC.tinta2}});ws.getRow(2).height=18;
+    ws.getRow(3).height=6;
+    // cabeçalho (2 linhas)
+    var cab=function(c,txt){ws.mergeCells(4,c,5,c);var x=ws.getCell(4,c);x.value=txt;x.font=xFont({bold:true,color:{argb:'FFFFFFFF'}});x.fill=xFill(XC.tinta);x.alignment=XCENTRO;x.border=xBorda(XC.tinta);};
+    cab(1,'Mat.');cab(2,'Funcionário');cab(n+3,'Folgas');cab(n+4,'Trabalho');
+    ws.getCell(4,2).alignment=XESQ;
+    for(var d=1;d<=n;d++){
+      var dt=new Date(y,m,d),wd=dt.getDay(),c=d+2;
+      var a=ws.getCell(4,c),b=ws.getCell(5,c);
+      a.value=WD[wd].charAt(0);b.value=d;
+      [a,b].forEach(function(x){x.fill=xFill(XC.tinta);x.alignment=XCENTRO;x.border=xBorda(XC.tinta);});
+      a.font=xFont({size:8,color:{argb:wd===0?'FFFFB4A8':'FFB9C1CF'}});
+      b.font=xFont({bold:true,size:10,color:{argb:wd===0?'FFFFB4A8':'FFFFFFFF'}});
+    }
+    ws.getRow(4).height=16;ws.getRow(5).height=20;
+    var r=6;
+    var ord=cad.turnos.map(function(t){return {t:t,fs:fs.filter(function(f){return f.turnoId===t.id;})};});
+    var semT=fs.filter(function(f){return !cad.turnos.some(function(t){return t.id===f.turnoId;});});if(semT.length)ord.push({t:null,fs:semT});
+    ord.forEach(function(g){
+      if(!g.fs.length)return;
+      ws.mergeCells(r,1,r,nCols);var gc=ws.getCell(r,1);
+      gc.value=(g.t?g.t.nome:'Sem turno')+(g.t&&g.t.inicio?'   '+g.t.inicio+' às '+g.t.fim:'');
+      gc.font=xFont({bold:true,size:10.5});gc.fill=xFill(XC.fundo);gc.alignment=XESQ;gc.border=xBorda();ws.getRow(r).height=20;r++;
+      g.fs.slice().sort(function(a,b){return a.nome.localeCompare(b.nome);}).forEach(function(f,i){
+        var row=ws.getRow(r);row.height=24;
+        var cnt={T:0,F:0,FE:0,AT:0,FT:0,'':0};
+        var c1=ws.getCell(r,1);c1.value=f.matricula?+f.matricula||f.matricula:'';c1.font=xFont({size:10,color:{argb:XC.tinta2}});c1.alignment=XCENTRO;c1.border=xBorda();
+        var c2=ws.getCell(r,2);c2.value=f.nome+(f.ativo===false?' (inativo)':'');c2.font=xFont({bold:true,size:10.5});c2.alignment=XESQ;c2.border=xBorda();
+        for(var d=1;d<=n;d++){
+          var k=key(y,m,d),v=get(f.id,k),wd=new Date(y,m,d).getDay(),x=ws.getCell(r,d+2);
+          cnt[v]=(cnt[v]||0)+1;
+          x.border=xBorda();x.alignment=XCENTRO;
+          if(XC[v]&&v!=='T'){x.value=v;x.fill=xFill(XC[v][0]);x.font=xFont({bold:true,size:10.5,color:{argb:XC[v][1]}});}
+          else{x.value=v==='T'?'':(v?v:'–');x.font=xFont({size:8,color:{argb:'FFB9C1CF'}});if(wd===0)x.fill=xFill(XC.dom);else if(wd===6)x.fill=xFill(XC.sab);}
+        }
+        var cf=ws.getCell(r,n+3);cf.value=cnt.F;cf.font=xFont({bold:true,size:10.5});cf.alignment=XCENTRO;cf.border=xBorda();
+        var ct=ws.getCell(r,n+4);ct.value=cnt.T;ct.font=xFont({bold:true,size:10.5});ct.alignment=XCENTRO;ct.border=xBorda();
+        resumo.push([l.nome,f.matricula||'',f.nome,turnoLbl(turno(f.turnoId)),cnt.T,cnt.F,cnt.FE,cnt.AT,cnt.FT,cnt[''],validar(f,y,m).alerts.map(function(a){return a.t;}).join(' | ')]);
+        r++;
+      });
+      if(g.t){
+        var min=+(l.minimos[g.t.id]||0);
+        ws.mergeCells(r,1,r,2);var cv=ws.getCell(r,1);cv.value='Trabalhando'+(min?' (mínimo '+min+')':'');cv.font=xFont({italic:true,color:{argb:XC.tinta2}});cv.alignment={horizontal:'right',vertical:'middle',indent:1};cv.border=xBorda();
+        for(var d2=1;d2<=n;d2++){var q=noTurno(l.id,g.t.id,key(y,m,d2)).length,x2=ws.getCell(r,d2+2);x2.value=q;x2.alignment=XCENTRO;x2.border=xBorda();
+          if(min&&q<min){x2.fill=xFill(XC.low[0]);x2.font=xFont({bold:true,size:8.5,color:{argb:XC.low[1]}});}else x2.font=xFont({size:8.5,color:{argb:XC.tinta2}});}
+        ws.getCell(r,n+3).border=xBorda();ws.getCell(r,n+4).border=xBorda();
+        ws.getRow(r).height=18;r++;
+      }
     });
-    cad.turnos.forEach(function(t){
-      if(!fs.some(function(f){return f.turnoId===t.id;}))return;
-      var min=+(l.minimos[t.id]||0),r=[turnoLbl(t),'Trabalhando'+(min?' (mín. '+min+')':'')];
-      for(var d=1;d<=n;d++)r.push(noTurno(l.id,t.id,key(y,m,d)).length);
-      rows.push(r);
-    });
-    rows.push([]);rows.push(['Legenda: T = Trabalho, F = Folga, FE = Férias, AT = Atestado, FT = Falta']);
-    var ws=XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols']=[{wch:22},{wch:24}].concat(Array(n).fill({wch:6})).concat([{wch:8},{wch:9}]);
-    ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:5}}];
-    ws['!freeze']={xSplit:2,ySplit:2};
-    abas.push([nomeAba(l.nome,usadas),ws]);
+    // legenda
+    r++;
+    var lg=[['F','Folga'],['FE','Férias'],['AT','Atestado'],['FT','Falta']],col=3;
+    ws.getCell(r,2).value='Legenda';ws.getCell(r,2).font=xFont({bold:true});ws.getCell(r,2).alignment={horizontal:'right',vertical:'middle',indent:1};
+    lg.forEach(function(p){var s=ws.getCell(r,col);s.value=p[0];s.fill=xFill(XC[p[0]][0]);s.font=xFont({bold:true,size:8.5,color:{argb:XC[p[0]][1]}});s.alignment=XCENTRO;s.border=xBorda();
+      ws.mergeCells(r,col+1,r,col+3);var tx=ws.getCell(r,col+1);tx.value=p[1];tx.font=xFont();tx.alignment={vertical:'middle'};col+=4;});
+    ws.mergeCells(r,col,r,col+8);var em=ws.getCell(r,col);em.value='Em branco = dia de trabalho';em.font=xFont({color:{argb:XC.tinta2}});em.alignment={vertical:'middle'};
+    ws.getRow(r).height=16;
+    r+=3;
+    ws.getCell(r,2).value='Visto do gerente: ______________________________';ws.getCell(r,2).font=xFont();
+    ws.mergeCells(r,n-8,r,n+4);var dc=ws.getCell(r,n-8);dc.value='Impresso em ____/____/________';dc.font=xFont();dc.alignment={horizontal:'right'};
+    ws.pageSetup.printArea='A1:'+ws.getColumn(nCols).letter+r;
   });
-  var wsR=XLSX.utils.aoa_to_sheet(res);wsR['!cols']=[{wch:16},{wch:10},{wch:30},{wch:14},{wch:22},{wch:9},{wch:7},{wch:7},{wch:9},{wch:7},{wch:14},{wch:80}];
-  XLSX.utils.book_append_sheet(wb,wsR,'Resumo');
-  abas.forEach(function(a){XLSX.utils.book_append_sheet(wb,a[1],a[0]);});
-  var pd=[['Pedido em','Loja','Enviado por','Tipo','Funcionário','Dia','O que aconteceu','Situação','Resposta','Respondido em']];
+  // resumo
+  var wr=wb.addWorksheet('Resumo',{views:[{state:'frozen',ySplit:3,showGridLines:false}]});
+  xPagina(wr,'3:3');
+  wr.columns=[{width:14},{width:8},{width:36},{width:18},{width:10},{width:8},{width:8},{width:10},{width:8},{width:13},{width:70}];
+  wr.mergeCells(1,1,1,11);wr.getCell(1,1).value='Resumo da escala · '+mesNome;wr.getCell(1,1).font=xFont({size:15,bold:true});wr.getRow(1).height=24;
+  var hd=['Loja','Mat.','Funcionário','Turno','Trabalho','Folga','Férias','Atestado','Falta','Sem lanç.','Alertas'];
+  hd.forEach(function(v,i){var c=wr.getCell(3,i+1);c.value=v;c.font=xFont({bold:true,color:{argb:'FFFFFFFF'}});c.fill=xFill(XC.tinta);c.alignment=i===2||i===10?XESQ:XCENTRO;c.border=xBorda(XC.tinta);});
+  wr.getRow(3).height=18;
+  resumo.forEach(function(rw,ri){
+    rw.forEach(function(v,i){var c=wr.getCell(4+ri,i+1);c.value=i===1&&v!==''?(+v||v):v;c.font=xFont({bold:i===2,color:{argb:i===10&&v?XC.low[1]:XC.tinta}});c.alignment=i===2||i===10||i===0?XESQ:XCENTRO;if(i===10)c.alignment={horizontal:'left',vertical:'middle',wrapText:true,indent:1};c.border=xBorda();if(ri%2)c.fill=xFill('FFFAFBFC');});
+    wr.getRow(4+ri).height=16;
+  });
+  // pedidos
+  var wp=wb.addWorksheet('Pedidos',{views:[{state:'frozen',ySplit:3,showGridLines:false}]});
+  xPagina(wp,'3:3');
+  wp.columns=[{width:15},{width:14},{width:20},{width:15},{width:30},{width:12},{width:55},{width:12},{width:40},{width:15}];
+  wp.mergeCells(1,1,1,10);wp.getCell(1,1).value='Pedidos de alteração · '+mesNome;wp.getCell(1,1).font=xFont({size:15,bold:true});wp.getRow(1).height=24;
+  ['Pedido em','Loja','Enviado por','Tipo','Funcionário','Dia','O que aconteceu','Situação','Resposta','Respondido em'].forEach(function(v,i){var c=wp.getCell(3,i+1);c.value=v;c.font=xFont({bold:true,color:{argb:'FFFFFFFF'}});c.fill=xFill(XC.tinta);c.alignment=XESQ;c.border=xBorda(XC.tinta);});
+  wp.getRow(3).height=18;
+  var pr=4;
   todosPedidos().filter(function(x){return (x.it.dia||'').slice(0,7)===mk||(x.it.criadoEm||'').slice(0,7)===mk;}).reverse().forEach(function(x){
     var l=loja(x.g),f=cad.funcs.find(function(ff){return ff.id===x.it.funcId;});
-    pd.push([fmtDT(x.it.criadoEm),l?l.nome:'',x.it.autorNome||'',tipoInfo(x.it.tipo)[1],f?f.nome:(x.it.funcNome||'Geral'),x.it.dia?fmtK(x.it.dia)+'/'+x.it.dia.slice(0,4):'',x.it.texto||'',!x.r?'Aguardando':(x.r.status==='aprovado'?'Aprovado':'Recusado'),x.r?(x.r.nota||''):'',x.r?fmtDT(x.r.em):'']);
+    var sit=!x.r?'Aguardando':(x.r.status==='aprovado'?'Aprovado':'Recusado');
+    [fmtDT(x.it.criadoEm),l?l.nome:'',x.it.autorNome||'',tipoInfo(x.it.tipo)[1],f?f.nome:(x.it.funcNome||'Loja toda'),x.it.dia?fmtK(x.it.dia)+'/'+x.it.dia.slice(0,4):'',x.it.texto||'',sit,x.r?(x.r.nota||''):'',x.r?fmtDT(x.r.em):''].forEach(function(v,i){
+      var c=wp.getCell(pr,i+1);c.value=v;c.font=xFont({bold:i===7,color:{argb:i===7?(sit==='Aprovado'?'FF1F7A45':sit==='Recusado'?XC.low[1]:'FF9A5B00'):XC.tinta}});c.alignment={horizontal:'left',vertical:'top',wrapText:i===6||i===8,indent:1};c.border=xBorda();});
+    pr++;
   });
-  var wsP=XLSX.utils.aoa_to_sheet(pd);wsP['!cols']=[{wch:14},{wch:16},{wch:18},{wch:14},{wch:22},{wch:11},{wch:60},{wch:11},{wch:40},{wch:14}];
-  XLSX.utils.book_append_sheet(wb,wsP,'Pedidos');
-  return XLSX.write(wb,{type:'array',bookType:'xlsx'});
+  if(pr===4){wp.mergeCells(4,1,4,10);wp.getCell(4,1).value='Nenhum pedido neste mês.';wp.getCell(4,1).font=xFont({italic:true,color:{argb:XC.tinta2}});}
+  return wb.xlsx.writeBuffer();
 }
 function baixarExcel(){
   if(!DL||ui.baixando)return;
   var y=ui.ano,m=ui.mes;ui.baixando=true;render();
-  carregarXlsx().then(function(X){
-    var buf=montarExcel(X,y,m);
-    return DL.save({filename:'Escala Kikoxinha '+pad(m+1)+'-'+y+'.xlsx',data:new Blob([buf])});
-  }).then(function(){ui.baixando=false;render();}).catch(function(e){
-    ui.baixando=false;var c=e&&e.code;
-    if(c!=='declined')ui.msg={k:'err',t:c==='rate_limited'?'Já tem um download esperando confirmação.':'Não consegui gerar o Excel'+(c?' ('+c+')':'')+'. Tente de novo.'};
-    render();
+  var sufixo=ui.loja!=='*'&&loja(ui.loja)?' '+loja(ui.loja).nome:'';
+  carregarXlsx().then(function(X){return montarExcel(X,y,m);}).then(function(buf){
+    return DL.save({filename:'Escala Kikoxinha'+sufixo+' '+pad(m+1)+'-'+y+'.xlsx',data:new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})});
+  }).then(function(){ui.baixando=false;toast('Excel baixado');render();}).catch(function(e){
+    ui.baixando=false;ui.msg={k:'err',t:'Não consegui gerar o Excel. Confira a internet e tente de novo.'};render();
   });
 }
 
