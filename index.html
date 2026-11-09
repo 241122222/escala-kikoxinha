@@ -903,7 +903,7 @@ function vEscala(){
     g.funcs.forEach(function(f){
       var v=validar(f,y,m),nf=0;
       if(v.alerts.length)allAlerts.push({f:f,a:v.alerts});
-      var r='<tr><td class="nm"><button class="pess" data-act="editf" data-v="'+f.id+'" title="Editar '+h(f.nome)+'">'+av(f.nome)+'<span><b>'+h(f.nome)+'</b><small>'+WD[+f.folga1]+' + '+WD[+f.folga2]+(+f.domingoCada?' · dom. a cada '+f.domingoCada:'')+'</small></span></button></td>';
+      var r='<tr><td class="nm"><button class="pess" data-act="editf" data-v="'+f.id+'" title="Editar '+h(f.nome)+'">'+av(f.nome)+'<span><b>'+h(f.nome)+'</b><small>'+WD[+f.folga1]+' + '+WD[+f.folga2]+((loja(f.lojaId)||{}).domingoQtd?' · domingo em rodízio':(+f.domingoCada?' · dom. a cada '+f.domingoCada:''))+'</small></span></button></td>';
       for(var d=1;d<=n;d++){
         var dt=new Date(y,m,d),k=kOf(dt),c=get(f.id,k),raw=getRaw(f.id,k),wd=dt.getDay(),pd=pedidosNoDia(f.id,k);
         if(c==='F')nf++;
@@ -915,7 +915,7 @@ function vEscala(){
     if(g.turnoId){
       var min=+(g.loja.minimos[g.turnoId]||0);
       var cr='<tr class="cov"><td class="nm">Trabalhando'+(min?' · mín. '+min:'')+'</td>';
-      for(var d2=1;d2<=n;d2++){var k4=kOf(new Date(y,m,d2)),q=noTurno(g.loja.id,g.turnoId,k4).length,has=g.funcs.some(function(f){return get(f.id,k4);});cr+='<td class="'+(has&&min&&q<min?'low':'')+(k4===tk?' hj':'')+'">'+(has?q:'')+'</td>';}
+      for(var d2=1;d2<=n;d2++){var k4=kOf(new Date(y,m,d2)),q=noTurno(g.loja.id,g.turnoId,k4).length,has=funcsDa(g.loja.id).some(function(f){return get(f.id,k4);});cr+='<td class="'+(has&&min&&q<min?'low':'')+(k4===tk?' hj':'')+'">'+(has?q:'')+'</td>';}
       body+=cr+'<td></td><td></td></tr>';
     }
   });
