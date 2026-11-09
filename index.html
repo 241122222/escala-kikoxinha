@@ -493,6 +493,156 @@ function folgaPrevista(f,dt){
   if(N>0&&f1!==0&&f2!==0){var wi=weekIndex(dt);if(((wi%N)+N)%N===(((+f.grupo||1)-1)%N))offs=[f1,0];}
   return offs.indexOf(wd)>=0;
 }
+/* ---- Motor da escala: folgas seg–sáb pelo mínimo da loja, domingo em rodízio,
+   mesmo nº de folgas no mês para todos, manhã/noite com 11h de descanso ---- */
+function tMin(s){var p=String(s||'').split(':');return p.length<2?null:(+p[0])*60+(+p[1]);}
+function descanso(ta,tb){var A=turno(ta),B=turno(tb);if(!A||!B)return 24*60;var f=tMin(A.fim),i=tMin(B.inicio);if(f==null||i==null)return 24*60;return 24*60-f+i;}
+function parTurnos(){
+  var DOM=cad.config.turnoDomingo,ts=cad.turnos.filter(function(t){return t.id!==DOM;});
+  if(ts.length!==2)return null;
+  ts=ts.slice().sort(function(a,b){return (tMin(a.inicio)||0)-(tMin(b.inicio)||0);});
+  return {M:ts[0].id,N:ts[1].id};
+}
+function motor(lids,fromK,toK,seed){
+  var DOM=cad.config.turnoDomingo&&turno(cad.config.turnoDomingo)?cad.config.turnoDomingo:null;
+  var PAR=parTurnos(),ONZE=11*60;
+  var amanha=kOf(addDays(new Date(),1));if(fromK<amanha)fromK=amanha;
+  var firstEdit=pk(fromK),end=addDays(pk(toK),(7-pk(toK).getDay())%7),start=mondayOf(firstEdit);
+  if(firstEdit>end)return {};
+  var di=function(d){return Math.round((d-start)/864e5);};
+  var sd=seed||11;function rnd(){sd=(sd*16807)%2147483647;return sd/2147483647;}
+  var mesDe=function(d){return d.getFullYear()*12+d.getMonth();};
+  var rep={};
+  lids.forEach(function(lid){
+    var l=loja(lid);if(!l)return;
+    var fs=funcsDa(lid).slice().sort(function(a,b){return (+a.matricula||0)-(+b.matricula||0)||a.nome.localeCompare(b.nome);});
+    var n=fs.length;if(!n)return;
+    var q=Math.min(+l.domingoQtd||n,n);
+    var plano={};fs.forEach(function(f){plano[f.id]={};});
+    var cur=function(f,k){return plano[f.id][k]!==undefined?plano[f.id][k]:getRaw(f.id,k);};
+    var trabC=function(c){return c==='W'||c==='D'||baseC(c)==='T';};
+    var folgaC=function(c){return c==='F';};
+    var st={};
+    fs.forEach(function(f){
+      var lo=-8;for(var i=1;i<=14;i++){if(!trabC(getRaw(f.id,kOf(addDays(start,-i))))){lo=-i;break;}}
+      var sw=0;for(var w=0;w<3;w++){if(trabC(getRaw(f.id,kOf(addDays(start,-1-7*w)))))sw++;else break;}
+      st[f.id]={lastOff:lo,sunStreak:sw,sun:0};
+    });
+    var fixo=function(f){return !!f.turnoFixo&&!!turno(f.turnoId);};
+    // folgas do mês A antes do dia d0
+    var folgasAntes=function(f,d0){var c=0;for(var d=new Date(d0.getFullYear(),d0.getMonth(),1);d<d0;d=addDays(d,1))if(folgaC(cur(f,kOf(d))))c++;return c;};
+    var temAus=function(f,y,m){var e=((meses[key(y,m,1).slice(0,7)]||{}).escala||{})[f.id]||{};return Object.keys(e).some(function(k){return e[k]==='FE'||e[k]==='AT';});};
+    // alvo de folgas na parte do mês A de uma semana que vira o mês
+    var calcCaudas=function(w0,extra){
+      var days=[0,1,2,3,4,5,6].map(function(i){return addDays(w0,i);});
+      var a=days.filter(function(d){return mesDe(d)===mesDe(days[0]);}).length;if(a===7)return null;
+      var b=7-a,y=days[0].getFullYear(),m=days[0].getMonth();
+      var part=fs.filter(function(f){return !temAus(f,y,m);});
+      var h={};part.forEach(function(f){h[f.id]=folgasAntes(f,w0)+(extra||0);});
+      var hs=part.map(function(f){return h[f.id];});if(!hs.length)return null;
+      var ideal=Math.round(dim(y,m)*2/7),best=null;
+      for(var T=Math.min.apply(null,hs);T<=Math.max.apply(null,hs)+2;T++){
+        var ok=true,mw=0,mo=0,cau={};
+        part.forEach(function(f){var t=T-h[f.id];if(t<0||t>Math.min(2,a)||2-t>b)ok=false;cau[f.id]=t;var B=2-t;if(B===0){mw++;if(st[f.id].sunStreak>=2)ok=false;}if(B===b&&b<=2)mo++;});
+        if(!ok||mw>q||mo>n-q)continue;
+        if(!best||Math.abs(T-ideal)<Math.abs(best.T-ideal))best={T:T,cau:cau,a:a,b:b};
+      }
+      return best;
+    };
+    for(var w0=new Date(start);w0<=end;w0=addDays(w0,7)){
+      var days=[0,1,2,3,4,5,6].map(function(i){return addDays(w0,i);}),keys=days.map(kOf);
+      var ed=days.map(function(d){return d>=firstEdit&&d<=end;});
+      var fx={};fs.forEach(function(f){fx[f.id]=keys.map(function(k,i){var c=cur(f,k);if(!ed[i])return trabC(c)?'T':(c||'F');return (c==='FE'||c==='AT'||c==='FT')?c:null;});});
+      var off={};fs.forEach(function(f){off[f.id]=fx[f.id].map(function(c){return c===null?null:c!=='T';});});
+      // turno fixo que não descansa 11h depois do domingo: folga na segunda
+      if(DOM)fs.forEach(function(f){if(fixo(f)&&off[f.id][0]===null&&trabC(cur(f,kOf(addDays(w0,-1))))&&descanso(DOM,f.turnoId)<ONZE)off[f.id][0]=true;});
+      var cr=calcCaudas(w0,0),prox=calcCaudas(addDays(w0,7),2);
+      var sg={};fs.forEach(function(f){var s=[];
+        if(cr&&cr.cau[f.id]!==undefined){var t=cr.cau[f.id];s.push({days:[0,1,2,3,4,5,6].slice(0,cr.a),exact:t},{days:[0,1,2,3,4,5,6].slice(cr.a),exact:2-t});}
+        if(prox&&prox.cau[f.id]===0){var L=prox.a;s.push({days:[0,1,2,3,4,5,6].filter(function(i){return i>=Math.min(L,6);}),min:1});}
+        sg[f.id]=s;});
+      // domingo
+      if(ed[6]){
+        var cand=fs.filter(function(f){return off[f.id][6]===null;});
+        var obrig=cand.filter(function(f){return sg[f.id].some(function(s){return s.exact===0&&s.days.indexOf(6)>=0;});});
+        var proib=cand.filter(function(f){return sg[f.id].some(function(s){return s.exact!==undefined&&s.days.indexOf(6)>=0&&s.exact>=s.days.length;});});
+        var resto=cand.filter(function(f){return obrig.indexOf(f)<0&&proib.indexOf(f)<0;});
+        resto.sort(function(a,b){var A=st[a.id],B=st[b.id];return (A.sunStreak>=2)-(B.sunStreak>=2)||A.sun-B.sun||(fixo(a)-fixo(b))||A.sunStreak-B.sunStreak||rnd()-0.5;});
+        var trab=obrig.concat(resto).slice(0,Math.max(q,obrig.length));
+        cand.forEach(function(f){off[f.id][6]=trab.indexOf(f)<0;});
+        // turno fixo que não descansa 11h antes do domingo: folga no sábado
+        if(DOM)fs.forEach(function(f){if(fixo(f)&&off[f.id][6]===false&&off[f.id][5]===null&&descanso(f.turnoId,DOM)<ONZE)off[f.id][5]=true;});
+      }
+      fs.forEach(function(f){sg[f.id].forEach(function(s){s.c=s.days.filter(function(i){return off[f.id][i]===true;}).length;});});
+      var need={};fs.forEach(function(f){var o=off[f.id].filter(function(x){return x===true;}).length;need[f.id]=Math.max(0,2-o);});
+      var D=0;fs.forEach(function(f){D+=need[f.id];});
+      var livres=function(i){return fs.filter(function(f){return off[f.id][i]===null;}).length;};
+      var trabFix=function(i){return fs.filter(function(f){return off[f.id][i]===false;}).length;};
+      var slots=[0,0,0,0,0,0],wdL=[0,1,2,3,4,5].filter(function(i){return livres(i)>0;});
+      for(var it=0;it<D;it++){var best=-1,bv=-1e9;wdL.forEach(function(i){var v=livres(i)-slots[i]+trabFix(i);if(v>bv){bv=v;best=i;}});if(best<0)break;slots[best]++;}
+      for(var d=0;d<6;d++){
+        if(!ed[d]){fs.forEach(function(f){if(off[f.id][d])st[f.id].lastOff=di(days[d]);});continue;}
+        var dx=di(days[d]);
+        var c2=fs.filter(function(f){return off[f.id][d]===null;});
+        var rest=function(f){var r=0;for(var j=d+1;j<6;j++)if(off[f.id][j]===null)r++;return r;};
+        var req=function(s){return (s.exact!==undefined?s.exact:s.min)-s.c;};
+        var rem=function(f,s){return s.days.filter(function(i){return i>=d&&off[f.id][i]===null;}).length;};
+        var pode=function(f){if(need[f.id]<=0)return false;return sg[f.id].every(function(s){if(s.days.indexOf(d)>=0)return s.exact===undefined||s.c<s.exact;var fa=req(s);var fut=s.days.some(function(i){return i>d;});return !(fut&&fa>0&&need[f.id]-1<fa);});};
+        var deve=function(f){return sg[f.id].some(function(s){if(s.days.indexOf(d)<0)return false;var r=req(s);return r>0&&rem(f,s)<=r;});};
+        var must=c2.filter(function(f){return pode(f)&&(deve(f)||dx-st[f.id].lastOff>=7||rest(f)<need[f.id]);});
+        var opt=c2.filter(function(f){return pode(f)&&must.indexOf(f)<0;});
+        opt.forEach(function(f){var s=(dx-st[f.id].lastOff)+need[f.id]*2;if(d===0&&st[f.id].lastOff===dx-1)s-=6;f.__s=s+rnd();});
+        opt.sort(function(a,b){return b.__s-a.__s;});
+        var esp=0;c2.forEach(function(f){if(!pode(f))return;sg[f.id].forEach(function(s){if(s.days.indexOf(d)<0)return;var r=req(s),m2=rem(f,s);if(r>0&&m2>0)esp+=r/m2;});});
+        var vagas=Math.max(slots[d],Math.round(esp));
+        var tira=must.concat(opt.slice(0,Math.max(0,vagas-must.length)));
+        c2.forEach(function(f){var o=tira.indexOf(f)>=0;off[f.id][d]=o;if(o){need[f.id]--;st[f.id].lastOff=dx;sg[f.id].forEach(function(s){if(s.days.indexOf(d)>=0)s.c++;});}});
+      }
+      fs.forEach(function(f){
+        if(off[f.id][6]===null)off[f.id][6]=false;
+        if(off[f.id][6]){st[f.id].lastOff=di(days[6]);st[f.id].sunStreak=0;}else{st[f.id].sunStreak++;st[f.id].sun++;}
+        keys.forEach(function(k,i){if(ed[i])plano[f.id][k]=fx[f.id][i]||(off[f.id][i]?'F':(i===6&&DOM?'D':'W'));});
+      });
+    }
+    // turnos
+    var turnoDe={};fs.forEach(function(f){turnoDe[f.id]={};});
+    var efOf=function(f,k){if(turnoDe[f.id][k])return turnoDe[f.id][k];var c=cur(f,k);if(c==='D')return DOM;if(c==='W')return null;return turnoEf(f,k);};
+    var allK=[];for(var d1=new Date(firstEdit);d1<=end;d1=addDays(d1,1))allK.push(kOf(d1));
+    var nN={};fs.forEach(function(f){nN[f.id]=0;});
+    allK.forEach(function(k){
+      var dt=pk(k);if(dt.getDay()===0&&DOM)return;
+      var ws=fs.filter(function(f){return cur(f,k)==='W';});
+      if(!PAR){ws.forEach(function(f){turnoDe[f.id][k]=f.turnoId;});return;}
+      var prevK=kOf(addDays(dt,-1)),forM=[],forN=[],free=[];
+      ws.forEach(function(f){
+        if(fixo(f)){(f.turnoId===PAR.N?forN:forM).push(f);return;}
+        var pc=cur(f,prevK),pe=trabC(pc)?efOf(f,prevK):null;
+        var mustN=pe&&descanso(pe,PAR.M)<ONZE;
+        var hitsDom=false;if(DOM&&descanso(PAR.N,DOM)<ONZE)for(var j=1;j<8;j++){var kj=kOf(addDays(dt,j)),cj=cur(f,kj);if(!trabC(cj))break;if(pk(kj).getDay()===0){hitsDom=true;break;}}
+        if(mustN)forN.push(f);else if(hitsDom)forM.push(f);else free.push(f);
+      });
+      var faltaN=Math.max(0,Math.floor(ws.length/2)-forN.length);
+      free.sort(function(a,b){return nN[a.id]-nN[b.id]||rnd()-0.5;});
+      var vaiN=free.slice(0,faltaN);
+      ws.forEach(function(f){var t=forN.indexOf(f)>=0||vaiN.indexOf(f)>=0?PAR.N:PAR.M;turnoDe[f.id][k]=t;if(t===PAR.N)nN[f.id]++;});
+    });
+    var mud=0;
+    fs.forEach(function(f){Object.keys(plano[f.id]).forEach(function(k){var c=plano[f.id][k],t=c==='W'?turnoDe[f.id][k]:c==='D'?DOM:null;var v=t!==null?(t===f.turnoId||!t?'T':'T@'+t):c;if(getRaw(f.id,k)!==v){setC(f.id,k,v);mud++;}});});
+    rep[lid]=mud;
+  });
+  return rep;
+}
+// preenche sozinho o que faltar até o fim do mês que vem
+function autoPreencher(){
+  if(mode!=='admin'||!cad.funcs.length)return;
+  var hoje=new Date(),hz=new Date(hoje.getFullYear(),hoje.getMonth()+2,0),feitas=[];
+  cad.lojas.forEach(function(l){
+    var fs=funcsDa(l.id);if(!fs.length)return;
+    for(var d=addDays(hoje,1);d<=hz;d=addDays(d,1)){var k=kOf(d);if(fs.some(function(f){return !getRaw(f.id,k);})){motor([l.id],k,kOf(hz));feitas.push(l.nome);break;}}
+  });
+  if(feitas.length){toast('Escala montada automaticamente: '+feitas.join(', '));softRender();}
+}
+
 function gerar(f,y,m){
   for(var d=1;d<=dim(y,m);d++){
     var dt=new Date(y,m,d),k=kOf(dt),c=get(f.id,k);
@@ -694,6 +844,7 @@ function startAdmin(){
           cad.funcs.forEach(function(f){if(f.ativo!==false){gerar(f,ui.ano,ui.mes);gerar(f,nx.getFullYear(),nx.getMonth());}});
         }
         if(ui.loja!=='*'&&!loja(ui.loja))ui.loja='*';flush();
+        setTimeout(autoPreencher,1500);
       }
     }
     softRender();
@@ -922,7 +1073,7 @@ function vEscala(){
     g.funcs.forEach(function(f){
       var v=validar(f,y,m),nf=0;
       if(v.alerts.length)allAlerts.push({f:f,a:v.alerts});
-      var r='<tr><td class="nm"><button class="pess" data-act="editf" data-v="'+f.id+'" title="Editar '+h(f.nome)+'">'+av(f.nome)+'<span><b>'+h(f.nome)+'</b><small>'+WD[+f.folga1]+' + '+WD[+f.folga2]+((loja(f.lojaId)||{}).domingoQtd?' · domingo em rodízio':(+f.domingoCada?' · dom. a cada '+f.domingoCada:''))+'</small></span></button></td>';
+      var r='<tr><td class="nm"><button class="pess" data-act="editf" data-v="'+f.id+'" title="Editar '+h(f.nome)+'">'+av(f.nome)+'<span><b>'+h(f.nome)+'</b><small>'+WD[+f.folga1]+' + '+WD[+f.folga2]+(f.turnoFixo?' · turno fixo':'')+((loja(f.lojaId)||{}).domingoQtd?' · domingo em rodízio':(+f.domingoCada?' · dom. a cada '+f.domingoCada:''))+'</small></span></button></td>';
       for(var d=1;d<=n;d++){
         var dt=new Date(y,m,d),k=kOf(dt),c=get(f.id,k),raw=getRaw(f.id,k),wd=dt.getDay(),pd=pedidosNoDia(f.id,k);
         if(c==='F')nf++;
@@ -1129,6 +1280,7 @@ function vModal(){
     return shell(isNew?'Adicionar funcionário':'Editar '+f.nome,'<form id="ff" class="form">'+
       '<label>Nome<input name="nome" required value="'+h(f.nome)+'" autocomplete="off"></label><div class="f2"><label>Matrícula<input name="matricula" value="'+h(f.matricula||'')+'" inputmode="numeric"></label><label>Função<input name="funcao" value="'+h(f.funcao||'')+'" placeholder="Ex.: Atendente"></label></div>'+
       '<div class="f2"><label>Loja<select name="lojaId">'+lo+'</select></label><label>Turno<select name="turnoId">'+to+'</select></label></div>'+
+      (cad.turnos.length>1?'<label class="chk"><input type="checkbox" name="turnoFixo"'+(f.turnoFixo?' checked':'')+'> Turno fixo: trabalha só no turno dele, não troca de turno (no domingo segue o turno de domingo)</label>':'')+
       (cad.turnos.length>1?'<fieldset><legend>Turno em cada dia (se mudar de turno durante a semana)</legend><div class="tsem">'+[1,2,3,4,5,6,0].map(function(i){var cur=(f.turnoSemana||{})[i]||'';return '<label><span>'+WD[i]+'</span><select name="ts'+i+'"><option value="">Padrão</option>'+cad.turnos.map(function(t){return '<option value="'+t.id+'"'+(cur===t.id?' selected':'')+'>'+h(t.nome)+'</option>';}).join('')+'</select></label>';}).join('')+'</div></fieldset>':'')+
       '<fieldset><legend>Folga fixa</legend>'+dias('folga1',f.folga1)+'</fieldset>'+
       '<fieldset><legend>Segunda folga</legend>'+dias('folga2',f.folga2)+'</fieldset>'+
@@ -1142,7 +1294,7 @@ function vModal(){
 function confirmar(title,text,ok,fn,perigo){ui.modal={type:'confirm',title:title,text:text,ok:ok,fn:fn,perigo:!!perigo};render();}
 function lerFunc(){
   var fd=new FormData($('#ff')),f=ui.modal.f;
-  return Object.assign(clone(f),{id:f.id,matricula:String(fd.get('matricula')||'').trim(),nome:String(fd.get('nome')||'').trim(),lojaId:fd.get('lojaId'),funcao:String(fd.get('funcao')||'').trim(),turnoId:fd.get('turnoId')||'',folga1:+fd.get('folga1'),folga2:+fd.get('folga2'),domingoCada:+fd.get('domingoCada')||0,grupo:+(fd.get('grupo')||1),ativo:!!fd.get('ativo'),turnoSemana:(function(){var o={};[0,1,2,3,4,5,6].forEach(function(i){var x=fd.get('ts'+i);if(x)o[i]=String(x);});return o;})()});
+  return Object.assign(clone(f),{id:f.id,matricula:String(fd.get('matricula')||'').trim(),nome:String(fd.get('nome')||'').trim(),lojaId:fd.get('lojaId'),funcao:String(fd.get('funcao')||'').trim(),turnoId:fd.get('turnoId')||'',folga1:+fd.get('folga1'),folga2:+fd.get('folga2'),domingoCada:+fd.get('domingoCada')||0,grupo:+(fd.get('grupo')||1),ativo:!!fd.get('ativo'),turnoFixo:!!fd.get('turnoFixo'),turnoSemana:(function(){var o={};[0,1,2,3,4,5,6].forEach(function(i){var x=fd.get('ts'+i);if(x)o[i]=String(x);});return o;})()});
 }
 function carregarExemplo(){
   var l=cad.lojas[0];if(!l){l={id:uid(),nome:'Loja 1',minimos:{}};cad.lojas.push(l);}
@@ -1369,7 +1521,8 @@ root.addEventListener('click',function(ev){
     case 'exemplo':carregarExemplo();break;
     case 'gerarq':{
       var fs=funcsDa(ui.loja);if(!fs.length)return;
-      confirmar('Gerar a escala de '+MESES[ui.mes].toLowerCase()+'?','Preenche '+fs.length+' pessoa'+(fs.length>1?'s':'')+' de '+(ui.loja==='*'?'todas as lojas':(loja(ui.loja)||{}).nome)+' a partir das folgas cadastradas. Os dias de trabalho e folga são refeitos a partir de hoje; dias que já passaram, férias, atestados e faltas ficam como estão.','Gerar escala',function(){fs.forEach(function(f){gerar(f,ui.ano,ui.mes);});toast('Escala de '+MESES[ui.mes].toLowerCase()+' gerada');});
+      var lids=ui.loja==='*'?cad.lojas.map(function(l){return l.id;}):[ui.loja];
+      confirmar('Gerar a escala de '+MESES[ui.mes].toLowerCase()+'?','Monta as folgas e os turnos de '+(ui.loja==='*'?'todas as lojas':(loja(ui.loja)||{}).nome)+' seguindo as regras: mínimo da loja de segunda a sábado, rodízio no domingo, 2 folgas por semana, mesma quantidade de folgas no mês para todos e 11h de descanso entre turnos. Refaz a partir de amanhã; dias que já passaram, férias, atestados e faltas ficam como estão.','Gerar escala',function(){motor(lids,key(ui.ano,ui.mes,1),key(ui.ano,ui.mes,dim(ui.ano,ui.mes)));toast('Escala de '+MESES[ui.mes].toLowerCase()+' gerada');});
       return;}
     case 'baixarxlsx':baixarExcel();return;
     case 'demoadm':verComo('adm');break;
@@ -1497,7 +1650,7 @@ function endPaint(ev){
 window.addEventListener('pointerup',endPaint);
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&ui.modal){ui.modal=null;render();}});
 window.addEventListener('pointercancel',function(){tap=null;endPaint();});
-window.__escala={gerar:gerar,montarExcel:montarExcel,get mode(){return mode;},get cad(){return cad;},get meses(){return meses;},get V(){return V;},ui:ui,validar:validar,flush:flush};
+window.__escala={gerar:gerar,motor:motor,autoPreencher:autoPreencher,montarExcel:montarExcel,get mode(){return mode;},get cad(){return cad;},get meses(){return meses;},get V(){return V;},ui:ui,validar:validar,flush:flush};
 render();
 })();
 
