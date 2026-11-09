@@ -400,6 +400,7 @@ td.c.ot::after{display:none}
 .tsem label{display:flex;flex-direction:column;gap:4px;font-size:12px!important}
 .tsem select{height:34px!important;font-size:13px!important;padding:0 2px;width:100%;min-width:0}
 @media (max-width:860px){.tsem{grid-template-columns:repeat(4,1fr)}}
+.inl{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:var(--tinta2)}.inl select{height:36px}
 </style>
 </head>
 <body>
@@ -497,7 +498,7 @@ function gerar(f,y,m){
     if(c==='FE'||c==='AT'||c==='FT')continue;
     if(k<todayKey())continue;
     var v='F';
-    if(!folgaPrevista(f,dt)){var ts=(f.turnoSemana||{})[dt.getDay()];v=ts&&ts!==f.turnoId&&cad.turnos.some(function(t){return t.id===ts;})?'T@'+ts:'T';}
+    if(!folgaPrevista(f,dt)){var ts=(dt.getDay()===0&&cad.config.turnoDomingo&&cad.turnos.some(function(t){return t.id===cad.config.turnoDomingo;}))?cad.config.turnoDomingo:(f.turnoSemana||{})[dt.getDay()];v=ts&&ts!==f.turnoId&&cad.turnos.some(function(t){return t.id===ts;})?'T@'+ts:'T';}
     setC(f.id,k,v);
   }
 }
@@ -529,6 +530,13 @@ function validar(f,y,m){
   }
   return {alerts:alerts,bad:bad,wk:wk};
 }
+function aplicarTurnoDomingo(){
+  var td=cad.config.turnoDomingo,hoje=todayKey();
+  Object.keys(meses).forEach(function(mk){var esc=(meses[mk]||{}).escala||{};Object.keys(esc).forEach(function(fid){var f=cad.funcs.find(function(x){return x.id===fid;});if(!f)return;
+    Object.keys(esc[fid]).forEach(function(k){if(k<hoje||pk(k).getDay()!==0)return;var c=esc[fid][k];if(baseC(c)!=='T')return;
+      var alvo=td||((f.turnoSemana||{})[0])||f.turnoId,nv=alvo&&alvo!==f.turnoId?'T@'+alvo:'T';if(nv!==c)setC(fid,k,nv);});});});
+}
+function foraDoDia(tid,k){var td=cad.config&&cad.config.turnoDomingo;if(!td)return false;var dom=pk(k).getDay()===0;return dom?tid!==td:tid===td;}
 function noTurno(lid,tid,k){return cad.funcs.filter(function(f){return f.ativo!==false&&f.lojaId===lid&&get(f.id,k)==='T'&&turnoEf(f,k)===(tid||'');});}
 
 /* ---------- gravação ---------- */
@@ -861,6 +869,7 @@ function vHoje(){
     var fs=funcsDa(l.id);if(!fs.length)return;
     var cols='';
     cad.turnos.forEach(function(t){
+      if(foraDoDia(t.id,k))return;
       var w=noTurno(l.id,t.id,k),min=+(l.minimos[t.id]||0),tot=fs.filter(function(f){return f.turnoId===t.id;}).length;
       if(!tot&&!min)return;
       cols+=turnoCol(t,w,min);
@@ -915,7 +924,7 @@ function vEscala(){
     if(g.turnoId){
       var min=+(g.loja.minimos[g.turnoId]||0);
       var cr='<tr class="cov"><td class="nm">Trabalhando'+(min?' · mín. '+min:'')+'</td>';
-      for(var d2=1;d2<=n;d2++){var k4=kOf(new Date(y,m,d2)),q=noTurno(g.loja.id,g.turnoId,k4).length,has=funcsDa(g.loja.id).some(function(f){return get(f.id,k4);});cr+='<td class="'+(has&&min&&q<min?'low':'')+(k4===tk?' hj':'')+'">'+(has?q:'')+'</td>';}
+      for(var d2=1;d2<=n;d2++){var k4=kOf(new Date(y,m,d2)),q=noTurno(g.loja.id,g.turnoId,k4).length,has=funcsDa(g.loja.id).some(function(f){return get(f.id,k4);});var fd=foraDoDia(g.turnoId,k4);cr+='<td class="'+(has&&min&&!fd&&q<min?'low':'')+(k4===tk?' hj':'')+'">'+(has?(fd&&!q?'–':q):'')+'</td>';}
       body+=cr+'<td></td><td></td></tr>';
     }
   });
@@ -1003,7 +1012,7 @@ function vConfig(){
     var q=cad.funcs.filter(function(f){return f.turnoId===t.id;}).length;
     o+='<tr><td><input class="in-nome" value="'+h(t.nome)+'" data-chg="tnome" data-id="'+t.id+'" aria-label="Nome do turno"></td><td><input type="time" value="'+h(t.inicio||'')+'" data-chg="tini" data-id="'+t.id+'" aria-label="Entrada"></td><td><input type="time" value="'+h(t.fim||'')+'" data-chg="tfim" data-id="'+t.id+'" aria-label="Saída"></td><td class="r">'+(q?'<span class="mut small">'+q+' pessoas</span>':'<button class="lnk perigo" data-act="delturno" data-v="'+t.id+'">Remover</button>')+'</td></tr>';
   });
-  o+='</tbody></table></div><button class="btn" data-act="addturno">'+ic('mais')+'Adicionar turno</button></section>';
+  o+='</tbody></table></div><div class="row"><button class="btn" data-act="addturno">'+ic('mais')+'Adicionar turno</button><span style="flex:1"></span><label class="inl">Turno de domingo <select data-chg="cfgturnodom"><option value="">Cada um no seu turno</option>'+cad.turnos.map(function(t){return '<option value="'+t.id+'"'+(cad.config.turnoDomingo===t.id?' selected':'')+'>'+h(turnoLbl(t))+'</option>';}).join('')+'</select></label></div><p class="mut small">Se escolher um turno de domingo, todo mundo que trabalha no domingo fica nesse turno (de hoje em diante).</p></section>';
   o+='<section class="painel"><div class="painel-h"><h2>Regras da escala</h2></div><div class="regras"><label>Máximo de dias seguidos trabalhando<input type="number" min="1" max="13" value="'+(cad.config.maxSeguidos||6)+'" data-chg="cfgmax"></label><label>Folga no domingo pelo menos a cada (semanas)<input type="number" min="0" max="8" value="'+(cad.config.domingoCada||0)+'" data-chg="cfgdom"></label></div><p class="mut small">Cada semana (segunda a domingo) também precisa ter exatamente 2 folgas. Semanas com férias ou atestado não são conferidas. Use 0 para não conferir domingos. Confira os valores com o RH e a convenção coletiva.</p></section>';
   o+='<section class="painel"><div class="painel-h"><h2>Backup</h2></div><p class="mut small">Copie e guarde num arquivo no OneDrive. Para restaurar, cole no campo de importar.</p><textarea readonly id="bkp" aria-label="Backup">'+h(JSON.stringify({cad:cad,meses:meses}))+'</textarea><div class="row"><button class="btn" data-act="copiarbkp">'+ic('copiar')+'Copiar backup</button></div><textarea id="imp" placeholder="Cole aqui um backup para importar" aria-label="Importar backup"></textarea><div class="row"><button class="btn perigo" data-act="importarq">Importar e substituir tudo</button></div></section>';
   return o;
@@ -1258,8 +1267,8 @@ function montarExcel(ExcelJS,y,m){
       if(g.t){
         var min=+(l.minimos[g.t.id]||0);
         ws.mergeCells(r,1,r,2);var cv=ws.getCell(r,1);cv.value='Trabalhando'+(min?' (mínimo '+min+')':'');cv.font=xFont({italic:true,color:{argb:XC.tinta2}});cv.alignment={horizontal:'right',vertical:'middle',indent:1};cv.border=xBorda();
-        for(var d2=1;d2<=n;d2++){var q=noTurno(l.id,g.t.id,key(y,m,d2)).length,x2=ws.getCell(r,d2+2);x2.value=q;x2.alignment=XCENTRO;x2.border=xBorda();
-          if(min&&q<min){x2.fill=xFill(XC.low[0]);x2.font=xFont({bold:true,size:8.5,color:{argb:XC.low[1]}});}else x2.font=xFont({size:8.5,color:{argb:XC.tinta2}});}
+        for(var d2=1;d2<=n;d2++){var q=noTurno(l.id,g.t.id,key(y,m,d2)).length,x2=ws.getCell(r,d2+2),fd=foraDoDia(g.t.id,key(y,m,d2));x2.value=fd&&!q?'–':q;x2.alignment=XCENTRO;x2.border=xBorda();
+          if(min&&!fd&&q<min){x2.fill=xFill(XC.low[0]);x2.font=xFont({bold:true,size:8.5,color:{argb:XC.low[1]}});}else x2.font=xFont({size:8.5,color:{argb:XC.tinta2}});}
         ws.getCell(r,n+3).border=xBorda();ws.getCell(r,n+4).border=xBorda();
         ws.getRow(r).height=18;r++;
       }
@@ -1357,7 +1366,7 @@ root.addEventListener('click',function(ev){
     case 'addloja':cad.lojas.push({id:uid(),nome:'Loja '+(cad.lojas.length+1),minimos:{}});touch('adm/cadastro');break;
     case 'delloja':cad.lojas=cad.lojas.filter(function(l){return l.id!==v;});if(ui.loja===v)ui.loja='*';touch('adm/cadastro');break;
     case 'addturno':cad.turnos.push({id:uid(),nome:'Turno '+(cad.turnos.length+1),inicio:'',fim:''});touch('adm/cadastro');break;
-    case 'delturno':cad.turnos=cad.turnos.filter(function(t){return t.id!==v;});cad.lojas.forEach(function(l){delete l.minimos[v];});touch('adm/cadastro');break;
+    case 'delturno':if(cad.config.turnoDomingo===v)cad.config.turnoDomingo='';cad.turnos=cad.turnos.filter(function(t){return t.id!==v;});cad.lojas.forEach(function(l){delete l.minimos[v];});touch('adm/cadastro');break;
     case 'dia':ui.dia=kOf(addDays(pk(ui.dia),+v));break;
     case 'hoje':ui.dia=todayKey();break;
     case 'semana':ui.semana=kOf(addDays(pk(ui.semana),+v));break;
@@ -1420,6 +1429,7 @@ root.addEventListener('change',function(ev){
     case 'tini':turno(id).inicio=v;touch('adm/cadastro');break;
     case 'tfim':turno(id).fim=v;touch('adm/cadastro');break;
     case 'lojadom':loja(id).domingoQtd=Math.max(0,parseInt(v,10)||0);touch('adm/cadastro');break;
+    case 'cfgturnodom':cad.config.turnoDomingo=v;aplicarTurnoDomingo();touch('adm/cadastro');toast(v?'Domingo ajustado para o turno '+((turno(v)||{}).nome||''):'Domingo volta ao turno de cada um');break;
     case 'cfgmax':cad.config.maxSeguidos=Math.max(1,+v||6);touch('adm/cadastro');break;
     case 'cfgdom':cad.config.domingoCada=Math.max(0,+v||0);touch('adm/cadastro');break;
     case 'gloja':cad.gerentes[id].lojaId=v;touch('adm/cadastro');break;
