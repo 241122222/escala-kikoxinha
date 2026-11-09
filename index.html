@@ -401,6 +401,7 @@ td.c.ot::after{display:none}
 .tsem select{height:34px!important;font-size:13px!important;padding:0 2px;width:100%;min-width:0}
 @media (max-width:860px){.tsem{grid-template-columns:repeat(4,1fr)}}
 .inl{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:var(--tinta2)}.inl select{height:36px}
+tr.cov.tot-l td{color:var(--tinta);font-weight:700;border-top:2px solid var(--linha,#E3E7EE)}tr.cov.tot-l td.low{color:var(--verm)}
 </style>
 </head>
 <body>
@@ -851,6 +852,9 @@ function grupos(lid){
   return g;
 }
 function pedidosNoDia(fid,k){var n=0;Object.keys(pedidos).forEach(function(g){((pedidos[g]||{}).itens||[]).forEach(function(it){if(it.funcId===fid&&it.dia===k&&!(respostas[g]||{})[it.id])n++;});});return n;}
+function totalDia(lid,k){return funcsDa(lid).filter(function(f){return get(f.id,k)==='T';}).length;}
+function faltaDia(l,k){var md=+(l.minDia||0);if(!md)return 0;var wd=pk(k).getDay();if(wd===0||wd===6)return 0;if(!funcsDa(l.id).some(function(f){return get(f.id,k);}))return 0;return Math.max(0,md-totalDia(l.id,k));}
+function diasCurtos(l,y,m){var n=new Date(y,m+1,0).getDate(),c=0,mx=0;for(var d=1;d<=n;d++){var x=faltaDia(l,key(y,m,d));if(x){c++;if(x>mx)mx=x;}}return {c:c,mx:mx};}
 function alertasMes(y,m,lid){var n=0;funcsDa(lid||'*').forEach(function(f){n+=validar(f,y,m).alerts.length;});return n;}
 
 /* ---- Hoje (admin) ---- */
@@ -860,8 +864,10 @@ function vHoje(){
   var o=pageHead('Quem trabalha',null,nav);
   o+=passos();
   var np=pendentes(),na=alertasMes(dt.getFullYear(),dt.getMonth());
-  if(np||na){
+  var falt=cad.lojas.filter(function(l){return (ui.loja==='*'||ui.loja===l.id)&&faltaDia(l,k);});
+  if(np||na||falt.length){
     o+='<div class="faixas">';
+    falt.forEach(function(l){var x=faltaDia(l,k);o+='<button class="faixa verm" data-act="tab" data-v="escala">'+ic('alerta')+'<span><b>'+h(l.nome)+': falta'+(x>1?'m':'')+' '+x+' pessoa'+(x>1?'s':'')+(ehHoje?' hoje':' neste dia')+'</b>'+totalDia(l.id,k)+' trabalhando, o mínimo é '+l.minDia+'</span>'+ic('dir')+'</button>';});
     if(np)o+='<button class="faixa ouro" data-act="tab" data-v="pedidos">'+ic('pedidos')+'<span><b>'+np+' pedido'+(np>1?'s':'')+' aguardando resposta</b>Responder agora</span>'+ic('dir')+'</button>';
     if(na)o+='<button class="faixa verm" data-act="veralertas">'+ic('alerta')+'<span><b>'+na+' alerta'+(na>1?'s':'')+' na escala de '+MESES[dt.getMonth()].toLowerCase()+'</b>Ver na escala</span>'+ic('dir')+'</button>';
     o+='</div>';
@@ -910,7 +916,7 @@ function vEscala(){
   for(var d=1;d<=n;d++){var dt=new Date(y,m,d),wd=dt.getDay(),k0=kOf(dt);head+='<th class="'+(wd===0?'dom ':wd===6?'sab ':'')+(k0===tk?'hj':'')+'"><span>'+WD[wd].charAt(0)+'</span>'+d+'</th>';}
   head+='<th class="tot">Folgas</th><th class="tot">Alertas</th></tr>';
   var body='',allAlerts=[];
-  gs.forEach(function(g){
+  gs.forEach(function(g,gi){
     var t=turno(g.turnoId);
     body+='<tr class="grp"><td class="nm" colspan="1"><b>'+h(t?t.nome:'Sem turno')+'</b>'+(t&&t.inicio?' <span>'+h(t.inicio)+'–'+h(t.fim)+'</span>':'')+(ui.loja==='*'?'<em>'+h(g.loja.nome)+'</em>':'')+'</td><td colspan="'+(n+2)+'"></td></tr>';
     g.funcs.forEach(function(f){
@@ -931,12 +937,20 @@ function vEscala(){
       for(var d2=1;d2<=n;d2++){var k4=kOf(new Date(y,m,d2)),q=noTurno(g.loja.id,g.turnoId,k4).length,has=funcsDa(g.loja.id).some(function(f){return get(f.id,k4);});var fd=foraDoDia(g.turnoId,k4);cr+='<td class="'+(has&&min&&!fd&&q<min?'low':'')+(k4===tk?' hj':'')+'">'+(has?(fd&&!q?'–':q):'')+'</td>';}
       body+=cr+'<td></td><td></td></tr>';
     }
+    var nx=gs[gi+1];
+    if(+g.loja.minDia&&(!nx||nx.loja.id!==g.loja.id)){
+      var tr='<tr class="cov tot-l"><td class="nm"><b>Total na loja</b> · mín. '+g.loja.minDia+' (seg a sex)</td>';
+      for(var d3=1;d3<=n;d3++){var k5=kOf(new Date(y,m,d3)),fx=faltaDia(g.loja,k5),hs=funcsDa(g.loja.id).some(function(f){return get(f.id,k5);});tr+='<td class="'+(fx?'low':'')+(k5===tk?' hj':'')+'"'+(fx?' title="Falta'+(fx>1?'m ':' ')+fx+'"':'')+'>'+(hs?totalDia(g.loja.id,k5):'')+'</td>';}
+      body+=tr+'<td></td><td></td></tr>';
+    }
   });
   var pinc='<div class="pinceis" role="radiogroup" aria-label="Marcar dias como">'+pinceis().map(function(p){return '<button role="radio" aria-checked="'+(ui.brush===p[0])+'" class="pincel'+(ui.brush===p[0]?' on':'')+'" data-act="brush" data-v="'+p[0]+'"><i class="sw '+p[2]+'">'+(p[3]||'')+'</i>'+p[1]+'</button>';}).join('')+'<span class="mut small dica">Clique ou arraste sobre os dias</span></div>';
   var resumo=allAlerts.length?'<a class="al-chip" href="#alertas" data-act="veralertas">'+ic('alerta')+allAlerts.reduce(function(a,x){return a+x.a.length;},0)+' alertas</a>':'<span class="al-chip ok">'+ic('ok')+'Escala dentro das regras</span>';
   o+='<section class="painel grade-p"><div class="grade-top">'+pinc+resumo+'</div><div class="gridwrap"><table class="g" id="grid"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+
     '<div class="leg"><span><i class="lg bad"></i>Regra quebrada</span><span><i class="lg wk"></i>Semana sem 2 folgas</span><span><i class="lg req"></i>Pedido aguardando</span>'+(cad.turnos.length>1?'<span><i class="sw T ot"><b class="lt">N</b></i>Letra = trabalha em outro turno naquele dia</span>':'')+'<span><i class="lg low"></i>Abaixo do mínimo</span></div></section>';
   o+='<section class="painel" id="alertas"><div class="painel-h"><h2>Alertas de '+MESES[m].toLowerCase()+'</h2></div>';
+  var curt=cad.lojas.filter(function(l){return ui.loja==='*'||ui.loja===l.id;}).map(function(l){return [l,diasCurtos(l,y,m)];}).filter(function(x){return x[1].c;});
+  if(curt.length)o+='<div class="alertas">'+curt.map(function(x){return '<div class="al"><div><b>'+h(x[0].nome)+': faltam funcionários</b><ul><li class="grave">'+x[1].c+' dia'+(x[1].c>1?'s':'')+' de segunda a sexta abaixo de '+x[0].minDia+' pessoas (falta'+(x[1].mx>1?'m':'')+' até '+x[1].mx+' por dia)</li></ul></div></div>';}).join('')+'</div>';
   if(!allAlerts.length)o+='<p class="mut">Todos com 2 folgas por semana, no máximo '+(+cad.config.maxSeguidos||6)+' dias seguidos'+(+cad.config.domingoCada?' e um domingo de folga a cada '+cad.config.domingoCada+' semanas':'')+'.</p>';
   else o+='<div class="alertas">'+allAlerts.map(function(x){return '<div class="al">'+av(x.f.nome)+'<div><b>'+h(x.f.nome)+'</b> <span class="mut small">'+h((loja(x.f.lojaId)||{}).nome||'')+'</span><ul>'+x.a.map(function(a){return '<li class="'+(a.lvl===2?'grave':'')+'">'+h(a.t)+'</li>';}).join('')+'</ul></div></div>';}).join('')+'</div>';
   return o+'</section>';
@@ -1002,12 +1016,13 @@ function vConfig(){
   o+=vAcessos();
   o+='<section class="painel"><div class="painel-h"><h2>Lojas e mínimo por turno</h2></div><p class="mut small">Mínimo: quantas pessoas precisam estar trabalhando em cada turno; a escala avisa quando fica abaixo. Domingo: quantas pessoas trabalham no domingo, em rodízio (deixe vazio para seguir o padrão de cada funcionário).</p><div class="tab-w"><table class="t"><thead><tr><th>Loja</th>';
   cad.turnos.forEach(function(t){o+='<th>'+h(t.nome)+'</th>';});
-  o+='<th>Domingo</th><th></th></tr></thead><tbody>';
+  o+='<th>Domingo</th><th>Seg–sex</th><th></th></tr></thead><tbody>';
   cad.lojas.forEach(function(l){
     var q=cad.funcs.filter(function(f){return f.lojaId===l.id;}).length,qg=Object.keys(usuarios).filter(function(g){return usuarios[g].lojaId===l.id;}).length;
     o+='<tr><td><input class="in-nome" value="'+h(l.nome)+'" data-chg="lojanome" data-id="'+l.id+'" aria-label="Nome da loja"></td>';
     cad.turnos.forEach(function(t){o+='<td><input type="number" min="0" value="'+(l.minimos[t.id]||0)+'" data-chg="lojamin" data-id="'+l.id+'" data-t="'+t.id+'" aria-label="Mínimo '+h(t.nome)+'"></td>';});
     o+='<td><input type="number" min="0" value="'+(l.domingoQtd||'')+'" placeholder="todos" data-chg="lojadom" data-id="'+l.id+'" aria-label="Pessoas trabalhando no domingo"></td>';
+    o+='<td><input type="number" min="0" value="'+(l.minDia||'')+'" placeholder="–" data-chg="lojamindia" data-id="'+l.id+'" aria-label="Mínimo de pessoas na loja de segunda a sexta"></td>';
     o+='<td class="r">'+(q||qg?'<span class="mut small">'+q+' pessoas</span>':'<button class="lnk perigo" data-act="delloja" data-v="'+l.id+'">Remover</button>')+'</td></tr>';
   });
   o+='</tbody></table></div><button class="btn" data-act="addloja">'+ic('mais')+'Adicionar loja</button></section>';
@@ -1277,6 +1292,14 @@ function montarExcel(ExcelJS,y,m){
         ws.getRow(r).height=18;r++;
       }
     });
+    if(+l.minDia){
+      ws.mergeCells(r,1,r,2);var tl=ws.getCell(r,1);tl.value='Total na loja (mínimo '+l.minDia+' seg a sex)';tl.font=xFont({bold:true,color:{argb:XC.tinta}});tl.alignment={horizontal:'right',vertical:'middle',indent:1};tl.border=xBorda();
+      var nfalt=0;
+      for(var d4=1;d4<=n;d4++){var k6=key(y,m,d4),x4=ws.getCell(r,d4+2),fx4=faltaDia(l,k6);x4.value=totalDia(l.id,k6);x4.alignment=XCENTRO;x4.border=xBorda();
+        if(fx4){nfalt++;x4.fill=xFill(XC.low[0]);x4.font=xFont({bold:true,size:9,color:{argb:XC.low[1]}});}else x4.font=xFont({bold:true,size:9,color:{argb:XC.tinta}});}
+      ws.getCell(r,n+3).border=xBorda();ws.getCell(r,n+4).border=xBorda();ws.getRow(r).height=18;r++;
+      if(nfalt){ws.mergeCells(r,1,r,n+4);var av4=ws.getCell(r,1);av4.value='Atenção: em '+nfalt+' dia'+(nfalt>1?'s':'')+' de segunda a sexta a loja fica abaixo de '+l.minDia+' pessoas (dias em vermelho). Faltam funcionários.';av4.font=xFont({bold:true,color:{argb:XC.low[1]}});av4.alignment={vertical:'middle',indent:1};ws.getRow(r).height=16;r++;}
+    }
     // legenda
     r++;
     var lg=[['F','Folga'],['FE','Férias'],['AT','Atestado'],['FT','Falta']],col=3;
@@ -1432,6 +1455,7 @@ root.addEventListener('change',function(ev){
     case 'tnome':turno(id).nome=v.trim()||turno(id).nome;touch('adm/cadastro');break;
     case 'tini':turno(id).inicio=v;touch('adm/cadastro');break;
     case 'tfim':turno(id).fim=v;touch('adm/cadastro');break;
+    case 'lojamindia':loja(id).minDia=Math.max(0,parseInt(v,10)||0);touch('adm/cadastro');break;
     case 'lojadom':loja(id).domingoQtd=Math.max(0,parseInt(v,10)||0);touch('adm/cadastro');break;
     case 'cfgturnodom':cad.config.turnoDomingo=v;aplicarTurnoDomingo();touch('adm/cadastro');toast(v?'Domingo ajustado para o turno '+((turno(v)||{}).nome||''):'Domingo volta ao turno de cada um');break;
     case 'cfgmax':cad.config.maxSeguidos=Math.max(1,+v||6);touch('adm/cadastro');break;
