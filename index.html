@@ -521,6 +521,10 @@ function validar(f,y,m){
   };
   for(var dt=addDays(first,-14);dt<=last;dt=addDays(dt,1)){var k2=kOf(dt);if(get(f.id,k2)==='T')run.push(k2);else flushRun();}
   flushRun();
+  var tmin=function(s){var p=String(s||'').split(':');return p.length<2?null:(+p[0])*60+(+p[1]);};
+  for(var dj=addDays(first,-1);dj<=last;dj=addDays(dj,1)){var kA=kOf(dj),kB=kOf(addDays(dj,1));if(!inM(kB)||get(f.id,kA)!=='T'||get(f.id,kB)!=='T')continue;
+    var tA=turno(turnoEf(f,kA)),tB=turno(turnoEf(f,kB));if(!tA||!tB)continue;var fa=tmin(tA.fim),ib=tmin(tB.inicio);if(fa==null||ib==null)continue;
+    var desc=24*60-fa+ib;if(desc<11*60){alerts.push({t:'Descanso de só '+Math.floor(desc/60)+'h'+(desc%60?pad(desc%60):'')+' entre '+fmtK(kA)+' ('+tA.nome+') e '+fmtK(kB)+' ('+tB.nome+'). Mínimo: 11h',lvl:2});bad[kB]=1;}}
   var D=+cad.config.domingoCada||0;
   if(D>0){
     var sr=[];
