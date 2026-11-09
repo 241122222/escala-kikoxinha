@@ -1190,7 +1190,9 @@ function xPagina(ws,linhasTitulo){
     margins:{left:0.25,right:0.25,top:0.45,bottom:0.45,header:0.2,footer:0.2},printTitlesRow:linhasTitulo||undefined};
   ws.headerFooter={oddFooter:'&L&8Kikoxinha · Escala 5x2&R&8Página &P de &N'};
 }
+var TCOR=['FFFFF1D6','FFE6E3FF','FFDDF2EF','FFFCE4EC'];function corTurno(tid){var i=cad.turnos.findIndex(function(t){return t.id===tid;});return TCOR[(i<0?0:i)%TCOR.length];}
 function montarExcel(ExcelJS,y,m){
+  var multi=cad.turnos.length>1;
   var n=dim(y,m),wb=new ExcelJS.Workbook(),usadas={resumo:1,pedidos:1},mk=key(y,m,1).slice(0,7),tk=todayKey();
   wb.creator='Kikoxinha';wb.created=new Date();
   var nCols=2+n+2,mesNome=MESES[m]+' de '+y;
@@ -1206,7 +1208,13 @@ function montarExcel(ExcelJS,y,m){
     // título
     ws.mergeCells(1,1,1,nCols);var t=ws.getCell(1,1);t.value='Escala de trabalho · '+l.nome;t.font=xFont({size:18,bold:true});t.alignment={vertical:'middle'};ws.getRow(1).height=26;
     ws.mergeCells(2,1,2,nCols);var st=ws.getCell(2,1);st.value=mesNome+' · Jornada 5x2';st.font=xFont({size:11,color:{argb:XC.tinta2}});ws.getRow(2).height=18;
-    ws.getRow(3).height=6;
+    if(multi){ws.getRow(3).height=20;var cc=1;
+      ws.getCell(3,1).value='Turnos:';ws.getCell(3,1).font=xFont({bold:true,size:10});ws.getCell(3,1).alignment={vertical:'middle'};cc=2;
+      var txt=cad.turnos.map(function(t){return letraTurno(t.id)+' = '+t.nome+(t.inicio?' ('+t.inicio+' às '+t.fim+')':'');}).join('      ');
+      var col3=3;cad.turnos.forEach(function(t){var sw=ws.getCell(3,col3);sw.value=letraTurno(t.id);sw.fill=xFill(corTurno(t.id));sw.font=xFont({bold:true,size:10});sw.alignment=XCENTRO;sw.border=xBorda();
+        ws.mergeCells(3,col3+1,3,col3+6);var tl=ws.getCell(3,col3+1);tl.value=t.nome+(t.inicio?'  '+t.inicio+' às '+t.fim:'');tl.font=xFont({bold:true,size:10});tl.alignment={vertical:'middle',indent:1};col3+=8;});
+      var nm=ws.getCell(3,2);nm.value='Cada dia mostra o turno da pessoa:';nm.font=xFont({size:10,color:{argb:XC.tinta2}});nm.alignment={horizontal:'right',vertical:'middle',indent:1};ws.getCell(3,1).value='';
+    }else ws.getRow(3).height=6;
     // cabeçalho (2 linhas)
     var cab=function(c,txt){ws.mergeCells(4,c,5,c);var x=ws.getCell(4,c);x.value=txt;x.font=xFont({bold:true,color:{argb:'FFFFFFFF'}});x.fill=xFill(XC.tinta);x.alignment=XCENTRO;x.border=xBorda(XC.tinta);};
     cab(1,'Mat.');cab(2,'Funcionário');cab(n+3,'Folgas');cab(n+4,'Trabalho');
@@ -1224,7 +1232,8 @@ function montarExcel(ExcelJS,y,m){
     var ord=cad.turnos.map(function(t){return {t:t,fs:fs.filter(function(f){return f.turnoId===t.id;})};});
     var semT=fs.filter(function(f){return !cad.turnos.some(function(t){return t.id===f.turnoId;});});if(semT.length)ord.push({t:null,fs:semT});
     ord.forEach(function(g){
-      if(!g.fs.length)return;
+      var usado=g.t&&fs.some(function(f){for(var d=1;d<=n;d++){var kk=key(y,m,d);if(get(f.id,kk)==='T'&&turnoEf(f,kk)===g.t.id)return true;}return false;});
+      if(!g.fs.length&&!usado)return;
       ws.mergeCells(r,1,r,nCols);var gc=ws.getCell(r,1);
       gc.value=(g.t?g.t.nome:'Sem turno')+(g.t&&g.t.inicio?'   '+g.t.inicio+' às '+g.t.fim:'');
       gc.font=xFont({bold:true,size:10.5});gc.fill=xFill(XC.fundo);gc.alignment=XESQ;gc.border=xBorda();ws.getRow(r).height=20;r++;
@@ -1238,6 +1247,7 @@ function montarExcel(ExcelJS,y,m){
           cnt[v]=(cnt[v]||0)+1;
           x.border=xBorda();x.alignment=XCENTRO;
           if(XC[v]&&v!=='T'){x.value=v;x.fill=xFill(XC[v][0]);x.font=xFont({bold:true,size:10.5,color:{argb:XC[v][1]}});}
+          else if(multi&&v==='T'){var te=turnoEf(f,k);x.value=letraTurno(te);x.fill=xFill(corTurno(te));x.font=xFont({bold:true,size:10.5,color:{argb:XC.tinta}});}
           else{var rw=getRaw(f.id,k);x.value=rw&&rw!==v?letraTurno(rw.slice(2)):(v==='T'?'':(v?v:'–'));if(rw&&rw!==v){x.font=xFont({bold:true,size:10,color:{argb:XC.tinta}});if(wd===0)x.fill=xFill(XC.dom);continue;}x.font=xFont({size:8,color:{argb:'FFB9C1CF'}});if(wd===0)x.fill=xFill(XC.dom);else if(wd===6)x.fill=xFill(XC.sab);}
         }
         var cf=ws.getCell(r,n+3);cf.value=cnt.F;cf.font=xFont({bold:true,size:10.5});cf.alignment=XCENTRO;cf.border=xBorda();
@@ -1260,7 +1270,7 @@ function montarExcel(ExcelJS,y,m){
     ws.getCell(r,2).value='Legenda';ws.getCell(r,2).font=xFont({bold:true});ws.getCell(r,2).alignment={horizontal:'right',vertical:'middle',indent:1};
     lg.forEach(function(p){var s=ws.getCell(r,col);s.value=p[0];s.fill=xFill(XC[p[0]][0]);s.font=xFont({bold:true,size:8.5,color:{argb:XC[p[0]][1]}});s.alignment=XCENTRO;s.border=xBorda();
       ws.mergeCells(r,col+1,r,col+3);var tx=ws.getCell(r,col+1);tx.value=p[1];tx.font=xFont();tx.alignment={vertical:'middle'};col+=4;});
-    ws.mergeCells(r,col,r,col+8);var em=ws.getCell(r,col);em.value='Em branco = dia de trabalho';em.font=xFont({color:{argb:XC.tinta2}});em.alignment={vertical:'middle'};
+    ws.mergeCells(r,col,r,col+8);var em=ws.getCell(r,col);em.value=multi?cad.turnos.map(function(t){return letraTurno(t.id);}).join(' / ')+' = dia de trabalho no turno':'Em branco = dia de trabalho';em.font=xFont({color:{argb:XC.tinta2}});em.alignment={vertical:'middle'};
     ws.getRow(r).height=16;
     r+=3;
     ws.getCell(r,2).value='Visto do gerente: ______________________________';ws.getCell(r,2).font=xFont();
