@@ -550,7 +550,7 @@ function motor(lids,fromK,toK,seed){
     var l=loja(lid);if(!l)return;
     var fs=funcsDa(lid).slice().sort(function(a,b){return (+a.matricula||0)-(+b.matricula||0)||a.nome.localeCompare(b.nome);});
     var n=fs.length;if(!n)return;
-    var q=Math.min(+l.domingoQtd||n,n);
+    var fechaDom=l.domingoQtd===0,q=fechaDom?0:Math.min(+l.domingoQtd||n,n);
     var plano={};fs.forEach(function(f){plano[f.id]={};});
     var cur=function(f,k){return plano[f.id][k]!==undefined?plano[f.id][k]:getRaw(f.id,k);};
     var trabC=function(c){return c==='W'||c==='D'||baseC(c)==='T';};
@@ -603,7 +603,7 @@ function motor(lids,fromK,toK,seed){
         var resto=cand.filter(function(f){return obrig.indexOf(f)<0&&proib.indexOf(f)<0;});
         resto.sort(function(a,b){var A=st[a.id],B=st[b.id];return (A.sunStreak>=2)-(B.sunStreak>=2)||A.sun-B.sun||(fixo(a)-fixo(b))||A.sunStreak-B.sunStreak||rnd()-0.5;});
         var j100=fs.filter(function(f){return fx[f.id][6]==='D1';}).length;
-        var trab=obrig.concat(resto).slice(0,Math.max(q-j100,obrig.length));
+        var trab=fechaDom?[]:obrig.concat(resto).slice(0,Math.max(q-j100,obrig.length));
         cand.forEach(function(f){off[f.id][6]=trab.indexOf(f)<0;});
         // turno fixo que não descansa 11h antes do domingo: folga no sábado
         if(DOM)fs.forEach(function(f){if(fixo(f)&&off[f.id][6]===false&&off[f.id][5]===null&&descanso(f.turnoId,DOM)<ONZE)off[f.id][5]=true;});
@@ -1238,14 +1238,14 @@ function vConfig(){
   var gids=[];
   var o=pageHead('Ajustes','Acessos, lojas, turnos e regras da escala.');
   o+=vAcessos();
-  o+='<section class="painel"><div class="painel-h"><h2>Lojas e mínimo por turno</h2></div><p class="mut small">Mínimo: quantas pessoas precisam estar trabalhando em cada turno; a escala avisa quando fica abaixo. Domingo: quantas pessoas trabalham no domingo, em rodízio (deixe vazio para seguir o padrão de cada funcionário).</p><div class="tab-w"><table class="t"><thead><tr><th>Loja</th>';
+  o+='<section class="painel"><div class="painel-h"><h2>Lojas e mínimo por turno</h2></div><p class="mut small">Mínimo: quantas pessoas precisam estar trabalhando em cada turno; a escala avisa quando fica abaixo. Domingo: quantas pessoas trabalham no domingo, em rodízio. Coloque 0 se a loja não abre no domingo (todos folgam).</p><div class="tab-w"><table class="t"><thead><tr><th>Loja</th>';
   if(!modoHorario())cad.turnos.forEach(function(t){o+='<th>'+h(t.nome)+'</th>';});
   o+='<th>Domingo</th><th>Seg–sáb</th><th></th></tr></thead><tbody>';
   cad.lojas.forEach(function(l){
     var q=cad.funcs.filter(function(f){return f.lojaId===l.id;}).length,qg=Object.keys(usuarios).filter(function(g){return usuarios[g].lojaId===l.id;}).length;
     o+='<tr><td><input class="in-nome" value="'+h(l.nome)+'" data-chg="lojanome" data-id="'+l.id+'" aria-label="Nome da loja"></td>';
     if(!modoHorario())cad.turnos.forEach(function(t){o+='<td><input type="number" min="0" value="'+(l.minimos[t.id]||0)+'" data-chg="lojamin" data-id="'+l.id+'" data-t="'+t.id+'" aria-label="Mínimo '+h(t.nome)+'"></td>';});
-    o+='<td><input type="number" min="0" value="'+(l.domingoQtd||'')+'" placeholder="todos" data-chg="lojadom" data-id="'+l.id+'" aria-label="Pessoas trabalhando no domingo"></td>';
+    o+='<td><input type="number" min="0" value="'+(l.domingoQtd===0?0:(l.domingoQtd||''))+'" placeholder="todos" title="0 = loja fechada no domingo" data-chg="lojadom" data-id="'+l.id+'" aria-label="Pessoas trabalhando no domingo"></td>';
     o+='<td><input type="number" min="0" value="'+(l.minDia||'')+'" placeholder="–" data-chg="lojamindia" data-id="'+l.id+'" aria-label="Mínimo de pessoas na loja de segunda a sábado"></td>';
     o+='<td class="r">'+(q||qg?'<span class="mut small">'+q+' pessoas</span>':'<button class="lnk perigo" data-act="delloja" data-v="'+l.id+'">Remover</button>')+'</td></tr>';
   });
@@ -1724,7 +1724,7 @@ root.addEventListener('change',function(ev){
     case 'tfim':turno(id).fim=v;touch('adm/cadastro');break;
     case 'lojamindia':loja(id).minDia=Math.max(0,parseInt(v,10)||0);touch('adm/cadastro');break;
     case 'tloja':{var tt=turno(id);if(tt){if(v)tt.lojaId=v;else delete tt.lojaId;touch('adm/cadastro');}break;}
-    case 'lojadom':loja(id).domingoQtd=Math.max(0,parseInt(v,10)||0);touch('adm/cadastro');break;
+    case 'lojadom':{var lj=loja(id);if(String(v).trim()==='')delete lj.domingoQtd;else lj.domingoQtd=Math.max(0,parseInt(v,10)||0);touch('adm/cadastro');break;}
     case 'cfgturnodom':cad.config.turnoDomingo=v;aplicarTurnoDomingo();touch('adm/cadastro');toast(v?'Domingo ajustado para o turno '+((turno(v)||{}).nome||''):'Domingo volta ao turno de cada um');break;
     case 'cfgmax':cad.config.maxSeguidos=Math.max(1,+v||6);touch('adm/cadastro');break;
     case 'cfgdom':cad.config.domingoCada=Math.max(0,+v||0);touch('adm/cadastro');break;
