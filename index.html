@@ -480,8 +480,16 @@ function turnoEf(f,k){var c=getRaw(f.id,k);if(c==='D1')return (cad.config&&cad.c
 function letraTurno(tid){var t=turno(tid);if(!t)return '?';if(t.sigla)return t.sigla;var ts=mode==='gerente'?(V&&V.turnos||[]):cad.turnos;var dom=mode==='gerente'?(V&&V.turnoDomingo):(cad.config&&cad.config.turnoDomingo);if(ts.length<=3)return t.nome.charAt(0).toUpperCase();if(t.id===dom)return 'D';var p=String(t.inicio||'').split(':');if(p.length<2)return t.nome.charAt(0).toUpperCase();return (+p[0])+'h';}
 var PAL=[['#FFD9A8','#7A3E00','FFFFD9A8','FF7A3E00'],['#FFF0A3','#665200','FFFFF0A3','FF665200'],['#E0F3B3','#3F6600','FFE0F3B3','FF3F6600'],['#BFEBCB','#145C2C','FFBFEBCB','FF145C2C'],['#B9E5E0','#0C5952','FFB9E5E0','FF0C5952'],['#DAD3FF','#43349E','FFDAD3FF','FF43349E'],['#EDCDF6','#692585','FFEDCDF6','FF692585'],['#F8C8DE','#861D52','FFF8C8DE','FF861D52']];
 var PALDOM=['#D3D8E0','#24303F','FFD3D8E0','FF24303F'];
-function corHor(tid){var ts=mode==='gerente'?(V&&V.turnos||[]):cad.turnos;var dom=mode==='gerente'?(V&&V.turnoDomingo):(cad.config&&cad.config.turnoDomingo);var t=ts.find(function(x){return x.id===tid;});if(!t)return null;if(t.id===dom||(!dom&&/domingo/i.test(t.nome)))return PALDOM;var hs=ts.filter(function(x){return x.id!==dom&&!/domingo/i.test(x.nome);}).sort(function(a,b){return String(a.inicio).localeCompare(String(b.inicio));});var i=hs.indexOf(t);return PAL[Math.round(i*(PAL.length-1)/Math.max(1,hs.length-1))]||PAL[0];}
+function corHor(tid){var ts=mode==='gerente'?(V&&V.turnos||[]):cad.turnos;var dom=mode==='gerente'?(V&&V.turnoDomingo):(cad.config&&cad.config.turnoDomingo);var t=ts.find(function(x){return x.id===tid;});if(!t)return null;if(t.id===dom||(!dom&&/domingo/i.test(t.nome)))return PALDOM;var hs=ts.filter(function(x){return x.id!==dom&&!/domingo/i.test(x.nome)&&(x.lojaId||'')===(t.lojaId||'');}).sort(function(a,b){return String(a.inicio).localeCompare(String(b.inicio));});var i=hs.indexOf(t);return PAL[Math.round(i*(PAL.length-1)/Math.max(1,hs.length-1))]||PAL[0];}
 function estiloCel(f,k){if(!modoHorario())return '';var raw=getRaw(f.id,k);if(baseC(raw)!=='T'||raw==='D1')return '';var c=corHor(turnoEf(f,k));return c?' style="background:'+c[0]+';color:'+c[1]+'"':'';}
+function turnosDaLoja(lid){
+  var ts=mode==='gerente'?(V&&V.turnos||[]):cad.turnos,dom=mode==='gerente'?(V&&V.turnoDomingo):(cad.config&&cad.config.turnoDomingo);
+  if(!lid||lid==='*')return ts.slice();
+  var prop=ts.filter(function(t){return t.lojaId===lid;});
+  var l=prop.filter(function(t){return t.id!==dom;}).length?prop:ts.filter(function(t){return !t.lojaId;});
+  if(dom&&!l.some(function(t){return t.id===dom;})){var td=ts.find(function(t){return t.id===dom;});if(td)l=l.concat([td]);}
+  return l;
+}
 function modoHorario(){var ts=mode==='gerente'?(V&&V.turnos||[]):cad.turnos;return ts.length>3;}
 function horaLbl(t){return t.inicio&&t.fim?t.inicio+' às '+t.fim:t.nome;}
 function porMat(a,b){return ((+a.matricula||1e9)-(+b.matricula||1e9))||a.nome.localeCompare(b.nome);}
@@ -524,7 +532,7 @@ function escolherTurno(f,prevT,nextT,base){
   var ok=function(x){return (!prevT||descanso(prevT,x)>=ONZE)&&(!nextT||descanso(x,nextT)>=ONZE);};
   if(!base)base=f.turnoId;if((f.turnoFixo&&turno(f.turnoId))||ok(base))return base;
   var b0=tMin((turno(base)||{}).inicio)||0,best=base,bd=1e9;
-  cad.turnos.forEach(function(t){if(t.id===DOM||!ok(t.id))return;var dd=Math.abs((tMin(t.inicio)||0)-b0);if(dd<bd){bd=dd;best=t.id;}});
+  turnosDaLoja(f.lojaId).forEach(function(t){if(t.id===DOM||!ok(t.id))return;var dd=Math.abs((tMin(t.inicio)||0)-b0);if(dd<bd){bd=dd;best=t.id;}});
   return best;
 }
 function motor(lids,fromK,toK,seed){
@@ -635,7 +643,7 @@ function motor(lids,fromK,toK,seed){
     var efOf=function(f,k){if(turnoDe[f.id][k])return turnoDe[f.id][k];var c=cur(f,k);if(c==='D')return DOM;if(c==='W')return null;return turnoEf(f,k);};
     var allK=[];for(var d1=new Date(firstEdit);d1<=end;d1=addDays(d1,1))allK.push(kOf(d1));
     var nN={};fs.forEach(function(f){nN[f.id]=0;});
-    var HS=cad.turnos.filter(function(t){return t.id!==DOM;}).sort(function(a,b){return String(a.inicio).localeCompare(String(b.inicio));});
+    var HS=turnosDaLoja(lid).filter(function(t){return t.id!==DOM;}).sort(function(a,b){return String(a.inicio).localeCompare(String(b.inicio));});
     var padrao={};fs.forEach(function(f,i){if(f.turnoId&&turno(f.turnoId)){padrao[f.id]=f.turnoId;return;}
       for(var j=1;j<=21;j++){var kk=kOf(addDays(firstEdit,-j)),cc=getRaw(f.id,kk);if(cc&&cc.indexOf('T@')===0&&cc.slice(2)!==DOM&&turno(cc.slice(2))){padrao[f.id]=cc.slice(2);return;}}
       padrao[f.id]=HS.length?HS[Math.floor(i*HS.length/n)].id:'';});
@@ -772,7 +780,7 @@ function visaoFor(lid){
   var j=janela(),fs=cad.funcs.filter(function(f){return f.ativo!==false&&f.lojaId===l.id;});
   var esc={};
   fs.forEach(function(f){var o={};for(var d=j.de;d<=j.ate;d=addDays(d,1)){var k=kOf(d),c=getRaw(f.id,k);if(c)o[k]=c;}esc[f.id]=o;});
-  return {lojaId:l.id,lojaNome:l.nome,minimos:clone(l.minimos),turnos:cad.turnos.map(clone),
+  return {lojaId:l.id,lojaNome:l.nome,minimos:clone(l.minimos),turnos:cad.turnos.map(clone),turnoDomingo:cad.config.turnoDomingo||'',
     funcs:fs.map(function(f){return {id:f.id,nome:f.nome,funcao:f.funcao||'',turnoId:f.turnoId||''};}),escala:esc,de:kOf(j.de),ate:kOf(j.ate)};
 }
 function stable(o){if(Array.isArray(o))return '['+o.map(stable).join(',')+']';if(o&&typeof o==='object'){return '{'+Object.keys(o).sort().filter(function(k){return k!=='atualizadoEm';}).map(function(k){return JSON.stringify(k)+':'+stable(o[k]);}).join(',')+'}';}return JSON.stringify(o);}
@@ -1162,7 +1170,7 @@ function vEscala(){
   var pinc='<div class="pinceis" role="radiogroup" aria-label="Marcar dias como">'+pinceis().map(function(p){return '<button role="radio" aria-checked="'+(ui.brush===p[0])+'" class="pincel'+(ui.brush===p[0]?' on':'')+'" data-act="brush" data-v="'+p[0]+'"><i class="sw '+p[2]+'">'+(p[3]||'')+'</i>'+p[1]+'</button>';}).join('')+'<span class="mut small dica">Clique ou arraste sobre os dias</span></div>';
   var resumo=allAlerts.length?'<a class="al-chip" href="#alertas" data-act="veralertas">'+ic('alerta')+allAlerts.reduce(function(a,x){return a+x.a.length;},0)+' alertas</a>':'<span class="al-chip ok">'+ic('ok')+'Escala dentro das regras</span>';
   o+='<section class="painel grade-p"><div class="grade-top">'+pinc+resumo+'</div><div class="gridwrap"><table class="g" id="grid"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+
-    '<div class="leg"><span><i class="lg bad"></i>Regra quebrada</span><span><i class="lg wk"></i>Semana sem 2 folgas</span><span><i class="lg req"></i>Pedido aguardando</span>'+(modoHorario()?cad.turnos.slice().sort(function(a,b){var d=cad.config.turnoDomingo;return (a.id===d)-(b.id===d)||String(a.inicio).localeCompare(String(b.inicio));}).map(function(t){var cz=corHor(t.id)||['#eee','#222'];return '<span><i class="sw" style="background:'+cz[0]+';color:'+cz[1]+';display:inline-grid;place-items:center;font-size:9px;font-weight:800;width:auto;min-width:22px;padding:0 3px">'+h(letraTurno(t.id))+'</i>'+h(horaLbl(t))+'</span>';}).join(''):cad.turnos.length>1?'<span><i class="sw T ot"><b class="lt">N</b></i>Letra = trabalha em outro turno naquele dia</span>':'')+'<span><i class="lg low"></i>Abaixo do mínimo</span></div></section>';
+    '<div class="leg"><span><i class="lg bad"></i>Regra quebrada</span><span><i class="lg wk"></i>Semana sem 2 folgas</span><span><i class="lg req"></i>Pedido aguardando</span>'+(modoHorario()?turnosDaLoja(ui.loja).sort(function(a,b){var d=cad.config.turnoDomingo;return (a.id===d)-(b.id===d)||String(a.inicio).localeCompare(String(b.inicio));}).map(function(t){var cz=corHor(t.id)||['#eee','#222'];return '<span><i class="sw" style="background:'+cz[0]+';color:'+cz[1]+';display:inline-grid;place-items:center;font-size:9px;font-weight:800;width:auto;min-width:22px;padding:0 3px">'+h(letraTurno(t.id))+'</i>'+h(horaLbl(t))+'</span>';}).join(''):cad.turnos.length>1?'<span><i class="sw T ot"><b class="lt">N</b></i>Letra = trabalha em outro turno naquele dia</span>':'')+'<span><i class="lg low"></i>Abaixo do mínimo</span></div></section>';
   o+='<section class="painel" id="alertas"><div class="painel-h"><h2>Alertas de '+MESES[m].toLowerCase()+'</h2></div>';
   var curt=cad.lojas.filter(function(l){return ui.loja==='*'||ui.loja===l.id;}).map(function(l){return [l,diasCurtos(l,y,m)];}).filter(function(x){return x[1].c;});
   if(curt.length)o+='<div class="alertas">'+curt.map(function(x){return '<div class="al"><div><b>'+h(x[0].nome)+': faltam funcionários</b><ul><li class="grave">'+x[1].c+' dia'+(x[1].c>1?'s':'')+' de segunda a sábado abaixo de '+x[0].minDia+' pessoas (falta'+(x[1].mx>1?'m':'')+' até '+x[1].mx+' por dia)</li></ul></div></div>';}).join('')+'</div>';
@@ -1230,21 +1238,21 @@ function vConfig(){
   var o=pageHead('Ajustes','Acessos, lojas, turnos e regras da escala.');
   o+=vAcessos();
   o+='<section class="painel"><div class="painel-h"><h2>Lojas e mínimo por turno</h2></div><p class="mut small">Mínimo: quantas pessoas precisam estar trabalhando em cada turno; a escala avisa quando fica abaixo. Domingo: quantas pessoas trabalham no domingo, em rodízio (deixe vazio para seguir o padrão de cada funcionário).</p><div class="tab-w"><table class="t"><thead><tr><th>Loja</th>';
-  cad.turnos.forEach(function(t){o+='<th>'+h(t.nome)+'</th>';});
+  if(!modoHorario())cad.turnos.forEach(function(t){o+='<th>'+h(t.nome)+'</th>';});
   o+='<th>Domingo</th><th>Seg–sáb</th><th></th></tr></thead><tbody>';
   cad.lojas.forEach(function(l){
     var q=cad.funcs.filter(function(f){return f.lojaId===l.id;}).length,qg=Object.keys(usuarios).filter(function(g){return usuarios[g].lojaId===l.id;}).length;
     o+='<tr><td><input class="in-nome" value="'+h(l.nome)+'" data-chg="lojanome" data-id="'+l.id+'" aria-label="Nome da loja"></td>';
-    cad.turnos.forEach(function(t){o+='<td><input type="number" min="0" value="'+(l.minimos[t.id]||0)+'" data-chg="lojamin" data-id="'+l.id+'" data-t="'+t.id+'" aria-label="Mínimo '+h(t.nome)+'"></td>';});
+    if(!modoHorario())cad.turnos.forEach(function(t){o+='<td><input type="number" min="0" value="'+(l.minimos[t.id]||0)+'" data-chg="lojamin" data-id="'+l.id+'" data-t="'+t.id+'" aria-label="Mínimo '+h(t.nome)+'"></td>';});
     o+='<td><input type="number" min="0" value="'+(l.domingoQtd||'')+'" placeholder="todos" data-chg="lojadom" data-id="'+l.id+'" aria-label="Pessoas trabalhando no domingo"></td>';
     o+='<td><input type="number" min="0" value="'+(l.minDia||'')+'" placeholder="–" data-chg="lojamindia" data-id="'+l.id+'" aria-label="Mínimo de pessoas na loja de segunda a sábado"></td>';
     o+='<td class="r">'+(q||qg?'<span class="mut small">'+q+' pessoas</span>':'<button class="lnk perigo" data-act="delloja" data-v="'+l.id+'">Remover</button>')+'</td></tr>';
   });
   o+='</tbody></table></div><button class="btn" data-act="addloja">'+ic('mais')+'Adicionar loja</button></section>';
-  o+='<section class="painel"><div class="painel-h"><h2>Turnos</h2></div><div class="tab-w"><table class="t"><thead><tr><th>Nome</th><th>Entrada</th><th>Saída</th><th></th></tr></thead><tbody>';
-  cad.turnos.forEach(function(t){
+  o+='<section class="painel"><div class="painel-h"><h2>Turnos</h2></div><div class="tab-w"><table class="t"><thead><tr><th>Nome</th><th>Entrada</th><th>Saída</th><th>Loja</th><th></th></tr></thead><tbody>';
+  cad.turnos.slice().sort(function(a,b){var la=(loja(a.lojaId)||{}).nome||'',lb=(loja(b.lojaId)||{}).nome||'';return la.localeCompare(lb)||String(a.inicio).localeCompare(String(b.inicio));}).forEach(function(t){
     var q=cad.funcs.filter(function(f){return f.turnoId===t.id;}).length;
-    o+='<tr><td><input class="in-nome" value="'+h(t.nome)+'" data-chg="tnome" data-id="'+t.id+'" aria-label="Nome do turno"></td><td><input type="time" value="'+h(t.inicio||'')+'" data-chg="tini" data-id="'+t.id+'" aria-label="Entrada"></td><td><input type="time" value="'+h(t.fim||'')+'" data-chg="tfim" data-id="'+t.id+'" aria-label="Saída"></td><td class="r">'+(q?'<span class="mut small">'+q+' pessoas</span>':'<button class="lnk perigo" data-act="delturno" data-v="'+t.id+'">Remover</button>')+'</td></tr>';
+    o+='<tr><td><input class="in-nome" value="'+h(t.nome)+'" data-chg="tnome" data-id="'+t.id+'" aria-label="Nome do turno"></td><td><input type="time" value="'+h(t.inicio||'')+'" data-chg="tini" data-id="'+t.id+'" aria-label="Entrada"></td><td><input type="time" value="'+h(t.fim||'')+'" data-chg="tfim" data-id="'+t.id+'" aria-label="Saída"></td><td><select data-chg="tloja" data-id="'+t.id+'" aria-label="Loja do horário"><option value="">Todas as lojas</option>'+cad.lojas.map(function(l){return '<option value="'+l.id+'"'+(t.lojaId===l.id?' selected':'')+'>Só '+h(l.nome)+'</option>';}).join('')+'</select></td><td class="r">'+(q?'<span class="mut small">'+q+' pessoas</span>':'<button class="lnk perigo" data-act="delturno" data-v="'+t.id+'">Remover</button>')+'</td></tr>';
   });
   o+='</tbody></table></div><div class="row"><button class="btn" data-act="addturno">'+ic('mais')+'Adicionar turno</button><span style="flex:1"></span><label class="inl">Turno de domingo <select data-chg="cfgturnodom"><option value="">Cada um no seu turno</option>'+cad.turnos.map(function(t){return '<option value="'+t.id+'"'+(cad.config.turnoDomingo===t.id?' selected':'')+'>'+h(turnoLbl(t))+'</option>';}).join('')+'</select></label></div><p class="mut small">Se escolher um turno de domingo, todo mundo que trabalha no domingo fica nesse turno (de hoje em diante).</p></section>';
   o+='<section class="painel"><div class="painel-h"><h2>Regras da escala</h2></div><div class="regras"><label>Máximo de dias seguidos trabalhando<input type="number" min="1" max="13" value="'+(cad.config.maxSeguidos||6)+'" data-chg="cfgmax"></label><label>Folga no domingo pelo menos a cada (semanas)<input type="number" min="0" max="8" value="'+(cad.config.domingoCada||0)+'" data-chg="cfgdom"></label></div><p class="mut small">Cada semana (segunda a domingo) também precisa ter exatamente 2 folgas. Semanas com férias ou atestado não são conferidas. Use 0 para não conferir domingos. Confira os valores com o RH e a convenção coletiva.</p></section>';
@@ -1316,7 +1324,8 @@ function vModal(){
   var md=ui.modal;if(!md)return '';
   var shell=function(titulo,corpo,fechavel){return '<div class="ov"'+(fechavel?' data-act="fecharov"':'')+'><div class="modal" role="dialog" aria-modal="true" aria-label="'+h(titulo)+'"><div class="modal-h"><h2>'+h(titulo)+'</h2><button class="ib" data-act="fechar" aria-label="Fechar">'+ic('x')+'</button></div>'+corpo+'</div></div>';};
   if(md.type==='horario'){
-    var dom=cad.config.turnoDomingo,ts=cad.turnos.slice().sort(function(a,b){return (a.id===dom)-(b.id===dom)||String(a.inicio).localeCompare(String(b.inicio));});
+    var lojasSel={};md.cells.forEach(function(c){var ff=cad.funcs.find(function(x){return x.id===c.fid;});if(ff)lojasSel[ff.lojaId]=1;});var lsK=Object.keys(lojasSel),tsBase=lsK.length===1?turnosDaLoja(lsK[0]):cad.turnos;
+    var dom=cad.config.turnoDomingo,ts=tsBase.slice().sort(function(a,b){return (a.id===dom)-(b.id===dom)||String(a.inicio).localeCompare(String(b.inicio));});
     var nc=md.cells.length,dias={};md.cells.forEach(function(c){dias[c.k]=1;});
     return shell('Escolher horário','<p class="mut small">'+nc+' dia'+(nc>1?'s':'')+' marcado'+(nc>1?'s':'')+'. Escolha o horário de trabalho:</p><div class="hor-list">'+ts.map(function(t){var cz=corHor(t.id)||['#fff','#172033'];return '<button class="hor" data-act="sethor" data-v="'+t.id+'" style="background:'+cz[0]+';color:'+cz[1]+';border-color:transparent"><b style="color:inherit">'+h(letraTurno(t.id))+'</b><span>'+h(horaLbl(t))+'</span>'+(t.id===dom?'<small>Domingo</small>':'')+'</button>';}).join('')+'</div><div class="modal-a"><button class="btn" data-act="fechar">Cancelar</button></div>',true);
   }
@@ -1469,7 +1478,7 @@ function montarExcel(ExcelJS,y,m){
     if(multi){ws.getRow(3).height=20;var cc=1;
       ws.getCell(3,1).value='Turnos:';ws.getCell(3,1).font=xFont({bold:true,size:10});ws.getCell(3,1).alignment={vertical:'middle'};cc=2;
       var txt=cad.turnos.map(function(t){return letraTurno(t.id)+' = '+t.nome+(t.inicio?' ('+t.inicio+' às '+t.fim+')':'');}).join('      ');
-      var col3=3,mh=modoHorario(),domY=cad.config.turnoDomingo;(mh?cad.turnos.slice().sort(function(a,b){return (a.id===domY)-(b.id===domY)||String(a.inicio).localeCompare(String(b.inicio));}):cad.turnos).forEach(function(t){if(mh&&col3+2>nCols)return;var sw=ws.getCell(3,col3);sw.value=letraTurno(t.id);sw.fill=xFill(corTurno(t.id));sw.font=xFont({bold:true,size:10});sw.alignment=XCENTRO;sw.border=xBorda();
+      var col3=3,mh=modoHorario(),domY=cad.config.turnoDomingo;(mh?turnosDaLoja(l.id).sort(function(a,b){return (a.id===domY)-(b.id===domY)||String(a.inicio).localeCompare(String(b.inicio));}):cad.turnos).forEach(function(t){if(mh&&col3+2>nCols)return;var sw=ws.getCell(3,col3);sw.value=letraTurno(t.id);sw.fill=xFill(corTurno(t.id));sw.font=xFont({bold:true,size:10});sw.alignment=XCENTRO;sw.border=xBorda();
         if(mh){var chm=corHor(t.id);if(chm)sw.font=xFont({bold:true,size:9,color:{argb:chm[3]}});ws.mergeCells(3,col3+1,3,col3+2);var tlm=ws.getCell(3,col3+1);tlm.value=(t.inicio||'')+'–'+(t.fim||'');tlm.font=xFont({size:8});tlm.alignment={vertical:'middle'};col3+=3;return;}ws.mergeCells(3,col3+1,3,col3+6);var tl=ws.getCell(3,col3+1);tl.value=t.nome+(t.inicio?'  '+t.inicio+' às '+t.fim:'');tl.font=xFont({bold:true,size:10});tl.alignment={vertical:'middle',indent:1};col3+=8;});
       var nm=ws.getCell(3,2);nm.value='Cada dia mostra o turno da pessoa:';nm.font=xFont({size:10,color:{argb:XC.tinta2}});nm.alignment={horizontal:'right',vertical:'middle',indent:1};ws.getCell(3,1).value='';
     }else ws.getRow(3).height=6;
@@ -1542,7 +1551,7 @@ function montarExcel(ExcelJS,y,m){
     ws.getRow(r).height=16;
     if(modoHorario()){r++;var colH=3,domX=cad.config.turnoDomingo;
       ws.getCell(r,2).value='Horários';ws.getCell(r,2).font=xFont({bold:true});ws.getCell(r,2).alignment={horizontal:'right',vertical:'middle',indent:1};
-      cad.turnos.slice().sort(function(a,b){return (a.id===domX)-(b.id===domX)||String(a.inicio).localeCompare(String(b.inicio));}).forEach(function(t){var cz=corHor(t.id);if(!cz||colH+2>nCols)return;var sx=ws.getCell(r,colH);sx.value=letraTurno(t.id);sx.fill=xFill(cz[2]);sx.font=xFont({bold:true,size:8.5,color:{argb:cz[3]}});sx.alignment=XCENTRO;sx.border=xBorda();
+      turnosDaLoja(l.id).sort(function(a,b){return (a.id===domX)-(b.id===domX)||String(a.inicio).localeCompare(String(b.inicio));}).forEach(function(t){var cz=corHor(t.id);if(!cz||colH+2>nCols)return;var sx=ws.getCell(r,colH);sx.value=letraTurno(t.id);sx.fill=xFill(cz[2]);sx.font=xFont({bold:true,size:8.5,color:{argb:cz[3]}});sx.alignment=XCENTRO;sx.border=xBorda();
         ws.mergeCells(r,colH+1,r,colH+2);var tx2=ws.getCell(r,colH+1);tx2.value=(t.inicio||'')+'–'+(t.fim||'');tx2.font=xFont({size:7.5});tx2.alignment={vertical:'middle'};colH+=3;});
       ws.getRow(r).height=16;}
     r+=3;
@@ -1713,6 +1722,7 @@ root.addEventListener('change',function(ev){
     case 'tini':turno(id).inicio=v;touch('adm/cadastro');break;
     case 'tfim':turno(id).fim=v;touch('adm/cadastro');break;
     case 'lojamindia':loja(id).minDia=Math.max(0,parseInt(v,10)||0);touch('adm/cadastro');break;
+    case 'tloja':{var tt=turno(id);if(tt){if(v)tt.lojaId=v;else delete tt.lojaId;touch('adm/cadastro');}break;}
     case 'lojadom':loja(id).domingoQtd=Math.max(0,parseInt(v,10)||0);touch('adm/cadastro');break;
     case 'cfgturnodom':cad.config.turnoDomingo=v;aplicarTurnoDomingo();touch('adm/cadastro');toast(v?'Domingo ajustado para o turno '+((turno(v)||{}).nome||''):'Domingo volta ao turno de cada um');break;
     case 'cfgmax':cad.config.maxSeguidos=Math.max(1,+v||6);touch('adm/cadastro');break;
