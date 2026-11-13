@@ -566,12 +566,13 @@ function motor(lids,fromK,toK,seed){
     var folgasAntes=function(f,d0){var c=0;for(var d=new Date(d0.getFullYear(),d0.getMonth(),1);d<d0;d=addDays(d,1)){var cc=cur(f,kOf(d));if(folgaC(cc)||cc==='D1')c++;}return c;};
     var temAus=function(f,y,m){var e=((meses[key(y,m,1).slice(0,7)]||{}).escala||{})[f.id]||{};return Object.keys(e).some(function(k){return e[k]==='FE'||e[k]==='AT';});};
     // alvo de folgas na parte do mês A de uma semana que vira o mês
-    var calcCaudas=function(w0,extra){
+    var calcCaudas=function(w0,extra,ate){
       var days=[0,1,2,3,4,5,6].map(function(i){return addDays(w0,i);});
       var a=days.filter(function(d){return mesDe(d)===mesDe(days[0]);}).length;if(a===7)return null;
       var b=7-a,y=days[0].getFullYear(),m=days[0].getMonth();
-      var part=fs.filter(function(f){return !temAus(f,y,m);});
-      var h={};part.forEach(function(f){h[f.id]=folgasAntes(f,w0)+(extra||0);});
+      var limite=ate||w0,completo=function(f){for(var d=new Date(y,m,1);d<limite;d=addDays(d,1)){if(!cur(f,kOf(d)))return false;}return true;};
+      var part=fs.filter(function(f){return !temAus(f,y,m)&&completo(f);});
+      var h={};part.forEach(function(f){h[f.id]=folgasAntes(f,ate||w0)+(extra||0);});
       var hs=part.map(function(f){return h[f.id];});if(!hs.length)return null;
       var ideal=hs.reduce(function(x,v){return x+v;},0)/hs.length+a*2/7,best=null;
       for(var T=Math.min.apply(null,hs);T<=Math.max.apply(null,hs)+2;T++){
@@ -590,7 +591,7 @@ function motor(lids,fromK,toK,seed){
       var n100=function(f){return fx[f.id].filter(function(c){return c==='D1';}).length;};
       // turno fixo que não descansa 11h depois do domingo: folga na segunda
       if(DOM)fs.forEach(function(f){if(fixo(f)&&off[f.id][0]===null&&trabC(cur(f,kOf(addDays(w0,-1))))&&descanso(DOM,f.turnoId)<ONZE)off[f.id][0]=true;});
-      var cr=calcCaudas(w0,0),prox=calcCaudas(addDays(w0,7),2);
+      var cr=calcCaudas(w0,0),prox=calcCaudas(addDays(w0,7),2,w0);
       var sg={};fs.forEach(function(f){var s=[];
         if(cr&&cr.cau[f.id]!==undefined){var t=cr.cau[f.id];s.push({days:[0,1,2,3,4,5,6].slice(0,cr.a),exact:t},{days:[0,1,2,3,4,5,6].slice(cr.a),exact:2-t});}
         if(prox&&prox.cau[f.id]===0){var L=prox.a;s.push({days:[0,1,2,3,4,5,6].filter(function(i){return i>=Math.min(L,6);}),min:1});}
