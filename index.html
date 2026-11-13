@@ -1127,7 +1127,7 @@ function ausCol(fs,k){
 }
 
 /* ---- Escala do mês (admin) ---- */
-function pinceis(){var p=[['toggle','Folga ou trabalho','tg'],['F','Folga','F']];if(!modoHorario())p.push(['T','Trabalho','T']);if(cad.turnos.length>3)p.push(['H','Trabalho (escolher horário)','T ot','<b class="lt">⏱</b>']);else if(cad.turnos.length>1)cad.turnos.forEach(function(t){p.push(['T@'+t.id,'Trabalho '+t.nome,'T ot','<b class="lt">'+h(t.nome.charAt(0).toUpperCase())+'</b>']);});return p.concat([['D1','Domingo 100%','T ot','<b class="lt l100">%</b>'],['FE','Férias','FE'],['AT','Atestado','AT'],['FT','Falta','FT'],['','Limpar','lp']]);}
+function pinceis(){var p=[['toggle','Folga ou trabalho','tg'],['F','Folga','F']];if(!modoHorario())p.push(['T','Trabalho','T']);if(cad.turnos.length>3)p.push(['H','Trabalho (escolher horário)','T ot','<b class="lt">⏱</b>']);else if(cad.turnos.length>1)cad.turnos.forEach(function(t){p.push(['T@'+t.id,'Trabalho '+t.nome,'T ot','<b class="lt">'+h(t.nome.charAt(0).toUpperCase())+'</b>']);});var dmB=cad.config.turnoDomingo&&turno(cad.config.turnoDomingo)?[['T@'+cad.config.turnoDomingo,'Domingo com folga','T ot','<b class="lt">D</b>']]:[];return p.concat(dmB).concat([['D1','Domingo 100% (sem folga)','T ot','<b class="lt l100">%</b>'],['FE','Férias','FE'],['AT','Atestado','AT'],['FT','Falta','FT'],['','Limpar','lp']]);}
 function vEscala(){
   var y=ui.ano,m=ui.mes,n=dim(y,m),tk=todayKey();
   var nav='<div class="pager"><button class="ib" data-act="mes" data-v="-1" aria-label="Mês anterior">'+ic('esq')+'</button><span class="pager-l"><span>'+MESES[m]+' '+y+'</span></span><button class="ib" data-act="mes" data-v="1" aria-label="Próximo mês">'+ic('dir')+'</button></div>';
@@ -1744,7 +1744,7 @@ function paint(td){
   if(painting.done[fid+k])return;painting.done[fid+k]=1;
   var val=painting.val;
   if(val==='H'){painting.cells.push({fid:fid,k:k});td.classList.add('sel');return;}
-  if(val==='D1'&&pk(k).getDay()!==0){if(!painting.avisou){painting.avisou=1;toast('Domingo 100% só pode ser marcado em domingos');}return;}
+  if((val==='D1'||(cad.config.turnoDomingo&&val==='T@'+cad.config.turnoDomingo&&modoHorario()))&&pk(k).getDay()!==0){if(!painting.avisou){painting.avisou=1;toast('Domingo só pode ser marcado em domingos');}return;}
   if(val&&val.indexOf('T@')===0){var ff=cad.funcs.find(function(x){return x.id===fid;});if(ff&&ff.turnoId===val.slice(2))val='T';}
   setC(fid,k,val);
   var b=baseC(val);
