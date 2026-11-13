@@ -414,9 +414,9 @@ td.c.sel{outline:2px solid var(--ouro);outline-offset:-2px;background:#FFF4DE}
 <div id="root"><div class="tela"><div class="tela-box"><p>Carregando…</p></div></div></div>
 <script type="module">
 import {initializeApp,deleteApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut,updatePassword,reauthenticateWithCredential,EmailAuthProvider} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {getFirestore,doc,collection,query,where,getDoc,setDoc,updateDoc,deleteDoc,onSnapshot,arrayUnion,arrayRemove} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-if(!window.__FB)window.__FB={initializeApp,deleteApp,getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut,getFirestore,doc,collection,query,where,getDoc,setDoc,updateDoc,deleteDoc,onSnapshot,arrayUnion,arrayRemove};
+if(!window.__FB)window.__FB={initializeApp,deleteApp,getAuth,onAuthStateChanged,signInWithEmailAndPassword,createUserWithEmailAndPassword,signOut,updatePassword,reauthenticateWithCredential,EmailAuthProvider,getFirestore,doc,collection,query,where,getDoc,setDoc,updateDoc,deleteDoc,onSnapshot,arrayUnion,arrayRemove};
 (function(){
 "use strict";
 var $=function(s){return document.querySelector(s);};
@@ -825,9 +825,14 @@ F.onAuthStateChanged(AUTH,function(user){
   }).catch(function(e){loadedOk();mode='semacesso';render();});
 });
 function sair(){F.signOut(AUTH).then(function(){location.reload();});}
+function chaveLogin(login){return emailDe(login).split('@')[0];}
+function emailAtual(login){
+  if(String(login).indexOf('@')>=0)return Promise.resolve(emailDe(login));
+  return DB.doc('logins/'+chaveLogin(login)).get().then(function(d){return (d.exists&&d.data().email)||emailDe(login);}).catch(function(){return emailDe(login);});
+}
 function entrar(login,senha){
   ui.loginErro=null;ui.entrando=true;render();
-  F.signInWithEmailAndPassword(AUTH,emailDe(login),senha).catch(function(e){ui.entrando=false;ui.loginErro=erroAuth(e);render();});
+  emailAtual(login).then(function(em){return F.signInWithEmailAndPassword(AUTH,em,senha);}).catch(function(e){ui.entrando=false;ui.loginErro=erroAuth(e);render();});
 }
 function primeiroAcesso(nome,login,senha){
   ui.loginErro=null;ui.entrando=true;render();
@@ -844,9 +849,27 @@ function criarAcesso(d){
     uid=cred.user.uid;return F.signOut(sa);
   }).then(function(){
     return DB.doc('usuarios/'+uid).set({nome:d.nome,login:String(d.login).trim().toLowerCase(),papel:d.papel,lojaId:d.papel==='loja'?d.lojaId:'',criadoEm:new Date().toISOString()});
+  }).then(function(){return DB.doc('logins/'+chaveLogin(d.login)).set({email:emailDe(d.login)}).catch(function(){});
   }).then(function(){
     if(d.papel==='admin')return DB.doc('config/sistema').update({admins:F.arrayUnion(uid)});
   }).then(function(){F.deleteApp(sec).catch(function(){});});
+}
+// troca a senha de outra pessoa: recria o acesso com o mesmo usuário e desativa o antigo
+function trocarSenhaDe(uid,nova){
+  var u=usuarios[uid];if(!u)return Promise.reject(new Error('Acesso não encontrado'));
+  var n=(+u.versao||1)+1,ch=chaveLogin(u.login),em=ch+'.v'+n+'@kikoxinha.app';
+  var sec=F.initializeApp(CFG,'sec'+Date.now()),sa=F.getAuth(sec),nu;
+  return F.createUserWithEmailAndPassword(sa,em,nova).then(function(cred){nu=cred.user.uid;return F.signOut(sa);})
+  .then(function(){return DB.doc('usuarios/'+nu).set(Object.assign({},u,{versao:n,senhaTrocadaEm:new Date().toISOString()}));})
+  .then(function(){return DB.doc('logins/'+ch).set({email:em});})
+  .then(function(){if(u.papel==='admin')return DB.doc('config/sistema').update({admins:F.arrayUnion(nu)}).then(function(){return DB.doc('config/sistema').update({admins:F.arrayRemove(uid)});});})
+  .then(function(){return DB.doc('usuarios/'+uid).delete();})
+  .then(function(){F.deleteApp(sec).catch(function(){});});
+}
+// troca a própria senha
+function trocarMinhaSenha(atual,nova){
+  var us=AUTH.currentUser;if(!us)return Promise.reject(new Error('Sessão expirada'));
+  return F.reauthenticateWithCredential(us,F.EmailAuthProvider.credential(us.email,atual)).then(function(){return F.updatePassword(us,nova);});
 }
 function removerAcesso(uid){
   var u=usuarios[uid]||{};
@@ -1220,7 +1243,7 @@ function vAcessos(){
   var ids=Object.keys(usuarios).sort(function(a,b){var A=usuarios[a],B=usuarios[b];return (A.papel==='admin'?0:1)-(B.papel==='admin'?0:1)||((loja(A.lojaId)||{}).nome||'').localeCompare((loja(B.lojaId)||{}).nome||'')||(A.login||'').localeCompare(B.login||'');});
   var o='<section class="painel"><div class="painel-h"><h2>Acessos</h2><button class="btn sm escuro" data-act="novoacesso">'+ic('mais')+'Criar acesso</button></div><p class="mut small">Cada loja entra com o próprio usuário e senha, vê só a escala dela e só pode pedir alterações. Administradores veem e mudam tudo.</p>';
   if(!ids.length)o+='<p class="mut small">Nenhum acesso criado ainda.</p>';
-  else o+='<div class="lista">'+ids.map(function(id){var u=usuarios[id],l=loja(u.lojaId);return '<div class="linha est acesso">'+av(u.nome||u.login)+'<span class="l1"><b>'+h(u.nome||u.login)+'</b><small>Usuário: '+h(u.login||'')+'</small></span><span class="l2">'+(u.papel==='admin'?'<em class="tag adm">Administrador</em>':'<em class="tag">'+h(l?l.nome:'Loja removida')+'</em>')+'</span>'+(id===ME?'<span class="mut small">Você</span>':'<button class="lnk perigo" data-act="delacesso" data-v="'+h(id)+'">Remover</button>')+'</div>';}).join('')+'</div>';
+  else o+='<div class="lista">'+ids.map(function(id){var u=usuarios[id],l=loja(u.lojaId);return '<div class="linha est acesso">'+av(u.nome||u.login)+'<span class="l1"><b>'+h(u.nome||u.login)+'</b><small>Usuário: '+h(u.login||'')+'</small></span><span class="l2">'+(u.papel==='admin'?'<em class="tag adm">Administrador</em>':'<em class="tag">'+h(l?l.nome:'Loja removida')+'</em>')+'</span>'+'<button class="lnk" data-act="trocasenha" data-v="'+h(id)+'">Trocar senha</button>'+(id===ME?'<span class="mut small">Você</span>':'<button class="lnk perigo" data-act="delacesso" data-v="'+h(id)+'">Remover</button>')+'</div>';}).join('')+'</div>';
   return o+'</section>';
 }
 /* ---------- visão do gerente ---------- */
@@ -1285,6 +1308,14 @@ function vModal(){
   }
   if(md.type==='confirm')return shell(md.title,'<p>'+h(md.text)+'</p><div class="modal-a"><button class="btn" data-act="fechar">Cancelar</button><button class="btn '+(md.perigo?'perigo-f':'escuro')+'" data-act="okconfirm">'+h(md.ok||'Confirmar')+'</button></div>',true);
   if(md.type==='copy')return shell('Copiar para o Excel','<p class="mut small">'+h(md.note)+'</p><textarea id="cp" style="min-height:200px">'+h(md.text)+'</textarea><div class="modal-a"><button class="btn escuro" data-act="fechar">Pronto</button></div>',true);
+  if(md.type==='senha'){
+    var us=usuarios[md.uid]||{},eu=md.uid===ME;
+    return shell(eu?'Trocar minha senha':'Trocar senha de '+(us.nome||us.login),(eu?'':'<p class="mut small">Usuário: <b>'+h(us.login||'')+'</b>. O usuário continua o mesmo; só a senha muda. A senha antiga para de funcionar na hora.</p>')+
+      '<div class="form">'+(eu?'<label>Senha atual<input type="password" id="sAtual" autocomplete="current-password"></label>':'')+
+      '<label>Senha nova<input type="password" id="sNova" autocomplete="new-password" minlength="6"></label><label>Repita a senha nova<input type="password" id="sNova2" autocomplete="new-password"></label>'+
+      (md.erro?'<p class="aviso erro"><span>'+h(md.erro)+'</span></p>':'')+
+      '<div class="modal-a"><button class="btn" data-act="fechar">Cancelar</button><button class="btn escuro" data-act="oksenha"'+(md.salvando?' disabled':'')+'>'+(md.salvando?'Salvando…':'Trocar senha')+'</button></div></div>',true);
+  }
   if(md.type==='acesso'){
     var a=md.a||{};
     return shell('Criar acesso','<form id="fa" class="form"><fieldset class="tipos"><legend>Tipo de acesso</legend><label class="tchip t-outro"><input type="radio" name="papel" value="loja"'+(a.papel!=='admin'?' checked':'')+' data-chg="papel"><span>Loja</span></label><label class="tchip t-outro"><input type="radio" name="papel" value="admin"'+(a.papel==='admin'?' checked':'')+' data-chg="papel"><span>Administrador</span></label></fieldset>'+
@@ -1570,6 +1601,16 @@ root.addEventListener('click',function(ev){
         var nd=dim(ui.ano,ui.mes),nz=0;fl.forEach(function(f){for(var d=1;d<=nd;d++){var k=key(ui.ano,ui.mes,d),c=getRaw(f.id,k);if(c&&c!=='FE'&&c!=='AT'&&c!=='FT'){setC(f.id,k,'');nz++;}}});
         cad.config.semAuto=cad.config.semAuto||{};lidsL.forEach(function(l){cad.config.semAuto[l+'|'+mkL]=1;});touch('adm/cadastro');
         toast(MESES[ui.mes]+' limpo ('+nz+' dias apagados)');},true);
+      return;}
+    case 'trocasenha':ui.modal={type:'senha',uid:v};break;
+    case 'oksenha':{
+      var md2=ui.modal,nv=($('#sNova')||{}).value||'',nv2=($('#sNova2')||{}).value||'',at=($('#sAtual')||{}).value||'';
+      if(nv.length<6){md2.erro='A senha precisa ter pelo menos 6 caracteres.';break;}
+      if(nv!==nv2){md2.erro='As duas senhas novas não são iguais.';break;}
+      if(md2.uid===ME&&!at){md2.erro='Digite a senha atual.';break;}
+      md2.erro=null;md2.salvando=true;render();
+      var pr=md2.uid===ME?trocarMinhaSenha(at,nv):trocarSenhaDe(md2.uid,nv);
+      pr.then(function(){ui.modal=null;toast('Senha trocada');render();}).catch(function(e){md2.salvando=false;md2.erro=(e&&e.code==='permission-denied')?'Sem permissão no banco de dados para trocar a senha.':erroAuth(e);render();});
       return;}
     case 'okconfirm':{var fn=ui.modal.fn;ui.modal=null;fn();break;}
     case 'fechar':case 'fecharov':ui.modal=null;break;
