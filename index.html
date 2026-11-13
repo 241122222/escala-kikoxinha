@@ -573,7 +573,7 @@ function motor(lids,fromK,toK,seed){
       var part=fs.filter(function(f){return !temAus(f,y,m);});
       var h={};part.forEach(function(f){h[f.id]=folgasAntes(f,w0)+(extra||0);});
       var hs=part.map(function(f){return h[f.id];});if(!hs.length)return null;
-      var ideal=Math.round(dim(y,m)*2/7),best=null;
+      var ideal=hs.reduce(function(x,v){return x+v;},0)/hs.length+a*2/7,best=null;
       for(var T=Math.min.apply(null,hs);T<=Math.max.apply(null,hs)+2;T++){
         var ok=true,mw=0,mo=0,cau={};
         part.forEach(function(f){var t=T-h[f.id];if(t<0||t>Math.min(2,a)||2-t>b)ok=false;cau[f.id]=t;var B=2-t;if(B===0){mw++;if(st[f.id].sunStreak>=2)ok=false;}if(B===b&&b<=2)mo++;});
