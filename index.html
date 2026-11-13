@@ -409,6 +409,7 @@ td.c.sel{outline:2px solid var(--ouro);outline-offset:-2px;background:#FFF4DE}
 .hor b{font-size:15px;color:var(--tinta)}.hor span{font-size:13px;color:var(--tinta2,#5A6478)}.hor small{font-size:11px;color:#8A5A00}
 .hor:hover{border-color:var(--ouro);background:#FFF9EC}
 td.c[style] .lt{color:inherit}td.c[style]{font-weight:700}
+.lt.lsm{font-size:9px;letter-spacing:-.4px}
 </style>
 </head>
 <body>
@@ -473,7 +474,7 @@ function getRaw(fid,k){
   if(mode==='gerente'){var e0=V&&V.escala&&V.escala[fid];return (e0&&e0[k])||'';}
   var m=meses[k.slice(0,7)],e=m&&m.escala&&m.escala[fid];return (e&&e[k])||'';
 }function baseC(c){return c&&(c.indexOf('T@')===0||c==='D1')?'T':c;}
-function marcaLt(raw){return raw==='D1'?'<b class="lt l100">100%</b>':'<b class="lt">'+letraTurno(raw.slice(2))+'</b>';}
+function marcaLt(raw){if(raw==='D1')return '<b class="lt l100">100%</b>';var lt=letraTurno(raw.slice(2));return '<b class="lt'+(lt.length>3?' lsm':'')+'">'+lt+'</b>';}
 function tituloRaw(raw){return raw==='D1'?'Domingo 100%: trabalha no domingo, recebe em dobro e não ganha folga':'Trabalha no turno '+h((turno(raw.slice(2))||{}).nome||'');}
 function get(fid,k){return baseC(getRaw(fid,k));}
 function turnoEf(f,k){var c=getRaw(f.id,k);if(c==='D1')return (cad.config&&cad.config.turnoDomingo&&turno(cad.config.turnoDomingo))?cad.config.turnoDomingo:(f.turnoId||'');return c&&c.indexOf('T@')===0?c.slice(2):(f.turnoId||'');}
@@ -645,7 +646,7 @@ function motor(lids,fromK,toK,seed){
     var nN={};fs.forEach(function(f){nN[f.id]=0;});
     var HS=turnosDaLoja(lid).filter(function(t){return t.id!==DOM;}).sort(function(a,b){return String(a.inicio).localeCompare(String(b.inicio));});
     var padrao={};fs.forEach(function(f,i){if(f.turnoId&&turno(f.turnoId)){padrao[f.id]=f.turnoId;return;}
-      for(var j=1;j<=21;j++){var kk=kOf(addDays(firstEdit,-j)),cc=getRaw(f.id,kk);if(cc&&cc.indexOf('T@')===0&&cc.slice(2)!==DOM&&turno(cc.slice(2))){padrao[f.id]=cc.slice(2);return;}}
+      for(var j=1;j<=21;j++){var kk=kOf(addDays(firstEdit,-j)),cc=getRaw(f.id,kk);if(cc&&cc.indexOf('T@')===0&&cc.slice(2)!==DOM&&HS.some(function(t){return t.id===cc.slice(2);})){padrao[f.id]=cc.slice(2);return;}}
       padrao[f.id]=HS.length?HS[Math.floor(i*HS.length/n)].id:'';});
     allK.forEach(function(k){
       var dt=pk(k);if(dt.getDay()===0&&DOM)return;
